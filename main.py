@@ -491,7 +491,7 @@ def open_about_window():
 
     # 加载图片
     try:
-        image = Image.open(resource_path("hantokata.png"))  # 替换为实际图片路径
+        image = Image.open(resource_path("hantokana.png"))  # 替换为实际图片路径
         photo = ImageTk.PhotoImage(image)
         image_label = tk.Label(about_frame, image=photo)
         image_label.image = photo
@@ -499,8 +499,8 @@ def open_about_window():
     except Exception as e:
         print(f"加载图片失败: {str(e)}")
 
-    tb.Label(about_frame, text="版本: 1.0", font=("Segoe UI", 12)).pack(pady=5)
-    tb.Label(about_frame, text="https://github.com/kanocyann/hantokata", font=("Segoe UI", 12)).pack(pady=5)
+    tb.Label(about_frame, text="版本: 0.1", font=("Segoe UI", 12)).pack(pady=5)
+    tb.Label(about_frame, text="https://github.com/kanocyann/hantokana", font=("Segoe UI", 12)).pack(pady=5)
 
     # 自动调整窗口大小
     about_window.update_idletasks()
