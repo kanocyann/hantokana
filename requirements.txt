@@ -1,0 +1,6 @@
+jaconv
+ttkbootstrap
+tkinter
+Pillow
+fugashi
+pykakasi
