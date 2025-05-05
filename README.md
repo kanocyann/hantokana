@@ -32,4 +32,34 @@
 
 ![image-20250505185529764](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/20250505185529803.png)
 
+### 下载与使用
+
+一、下载Release中打包好的exe直接使用
+
+二、本地环境启动
+
+1. bash，cmd，powershell等shell
+
+```shell
+git clone https://github.com/kanocyann/hantokana.git
+```
+
+或者直接下载
+
+![image-20250505195523371](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/20250505195523425.png)
+
+2. 然后执行
+
+```shell
+pip install -r requirements.txt
+```
+
+3. 启动程序
+
+```shell
+python main.py
+```
+
+------
+
 如果觉得这个工具好玩的话就点一个小STAR✨吧
