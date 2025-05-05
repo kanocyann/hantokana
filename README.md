@@ -1,4 +1,4 @@
-![hantokana](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/20250505185842405.png)
+![longhtk](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/20250505200512645.png)
 
 # Hantokana
 
