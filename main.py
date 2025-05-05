@@ -511,13 +511,22 @@ def open_about_window():
     about_window.geometry(f"{width}x{height}+{x}+{y}")
 
 
+def get_kana(surface):
+    """用 pyKakasi 将词转换为平假名"""
+    kana = ""
+    for token in conv.do(surface):  # 注意这里改为使用conv.do()
+        kana += token['hira']
+    return kana
+
+
 def convert_text(text_input, text_output_text, use_hira, use_kata, use_roma):
-    """执行转换操作"""
+    """执行日语文本转换：显示平假名、片假名和罗马音"""
     global tagger, conv
-    if tagger is None:
-        tagger = init_tagger()
     if conv is None:
         conv = init_kks()
+    if tagger is None:
+        tagger = init_tagger()
+
     raw = text_input.get("1.0", tk.END).strip()
     if not raw:
         update_output(text_output_text, "请输入日文文本。")
@@ -528,23 +537,55 @@ def convert_text(text_input, text_output_text, use_hira, use_kata, use_roma):
 
     result = ""
     try:
-        for word in tagger(raw):
-            surface = word.surface
-            readings = custom_dict.get(surface) or [word.feature.kana or surface]
-            line = f"[{surface}]"
-            hira_list, kata_list, roma_list = [], [], []
-            for r in readings:
-                hira = jaconv.kata2hira(r)
-                hira_list.append(hira)
-                kata_list.append(jaconv.hira2kata(hira))
-                roma_list.append(conv.do(hira))
-            if use_hira.get():
-                line += " → [" + " / ".join(hira_list) + "]"
-            if use_kata.get():
-                line += " → [" + " / ".join(kata_list) + "]"
-            if use_roma.get():
-                line += " → [" + " / ".join(roma_list) + "]"
+        # 先进行正常分词
+        words = tagger(raw)
+
+        # 合并应该保持完整的词
+        merged_words = []
+        i = 0
+        while i < len(words):
+            current = words[i]
+
+            # 检查是否需要与下一个词合并
+            if i < len(words) - 1:
+                next_word = words[i + 1]
+                combined = current.surface + next_word.surface
+
+                # 定义需要保持完整的词列表
+                keep_whole = ["なって", "消える", "ている", "でした"]  # 可根据需要扩展
+
+                if combined in keep_whole:
+                    merged_words.append(combined)
+                    i += 2
+                    continue
+
+            merged_words.append(current.surface)
+            i += 1
+
+        # 处理合并后的词
+        for word in merged_words:
+            # 优先使用自定义词典
+            if word in custom_dict:
+                readings = custom_dict[word]
+            else:
+                # 使用pykakasi转换
+                converted = conv.convert(word)
+                readings = [item['hira'] for item in converted]
+
+            line = f"[{word}]"
+            for reading in readings:
+                if use_hira.get():
+                    hira = jaconv.kata2hira(reading)
+                    line += " → [" + hira + "]"
+                if use_kata.get():
+                    kata = jaconv.hira2kata(reading)
+                    line += " → [" + kata + "]"
+                if use_roma.get():
+                    roma_item = conv.convert(reading)[0]
+                    roma = roma_item['hepburn']
+                    line += " → [" + roma + "]"
             result += line + "\n"
+
         update_output(text_output_text, result.strip())
     except Exception as e:
         show_message(root, "错误", str(e), "error")
