@@ -57,7 +57,7 @@ pip install -r requirements.txt
 3. 启动程序
 
 ```shell
-python main.py
+python hantokana.py
 ```
 
 ------
