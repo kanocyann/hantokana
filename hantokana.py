@@ -8,13 +8,16 @@ from tkinter import Menu, filedialog
 import os
 import json
 from ctypes import windll
-from PIL import Image, ImageTk  # 导入PIL库用于处理图片
+from PIL import Image, ImageTk
 
 # 高清支持
 windll.shcore.SetProcessDpiAwareness(1)
 
 # 全局变量
-custom_dict = {}
+custom_dict = {
+    "normal_words": {},
+    "compound_words": {}
+}
 current_dict_path = None  # 跟踪当前使用的字典路径
 tagger = None  # 初始化 tagger
 conv = None  # 初始化 conv
@@ -30,7 +33,7 @@ def resource_path(relative_path):
 def get_appdata_path():
     """获取应用程序数据目录路径"""
     appdata = os.getenv('APPDATA')
-    app_dir = os.path.join(appdata, 'JapaneseConverter')
+    app_dir = os.path.join(appdata, 'Hantokana')
     os.makedirs(app_dir, exist_ok=True)
     return app_dir
 
@@ -59,6 +62,7 @@ def init_tagger():
 def init_kks():
     import pykakasi
     kks = pykakasi.kakasi()
+    # 使用新的API设置模式
     kks.setMode("J", "a")
     kks.setMode("K", "a")
     kks.setMode("H", "a")
@@ -97,7 +101,10 @@ def load_custom_dict():
                     dst.write(data)
             else:
                 with open(custom_dict_path, "w", encoding="utf-8") as f:
-                    json.dump({}, f, ensure_ascii=False, indent=2)
+                    json.dump({
+                        "normal_words": {},
+                        "compound_words": {}
+                    }, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"初始化字典文件失败: {str(e)}")
 
@@ -107,7 +114,22 @@ def load_custom_dict():
         current_dict_path = custom_dict_path
     except Exception as e:
         print(f"加载字典文件失败: {str(e)}")
-        custom_dict = {}
+        custom_dict = {
+            "normal_words": {},
+            "compound_words": {}
+        }
+
+
+def save_custom_dict():
+    """保存自定义词典"""
+    global custom_dict, current_dict_path
+    dict_path = current_dict_path or get_dict_path()
+    os.makedirs(os.path.dirname(dict_path), exist_ok=True)
+    try:
+        with open(dict_path, "w", encoding="utf-8") as f:
+            json.dump(custom_dict, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"保存字典文件失败: {str(e)}")
 
 
 def set_window_icon(window):
@@ -141,9 +163,16 @@ def show_message(parent, title, message, style='info'):
     dialog.transient(parent)
     dialog.grab_set()
 
-    dialog.geometry(f"340x200+{x}+{y}")
-
-    parent.wait_window(dialog)
+    # 计算消息框位置
+    parent_x = parent.winfo_x()
+    parent_y = parent.winfo_y()
+    parent_width = parent.winfo_width()
+    parent_height = parent.winfo_height()
+    dialog_width = 340
+    dialog_height = 200
+    x = parent_x + (parent_width - dialog_width) // 2
+    y = parent_y + (parent_height - dialog_height) // 2
+    dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
 
 
 def load_dict():
@@ -157,7 +186,8 @@ def load_dict():
         if isinstance(new_dict, dict):
             global custom_dict, current_dict_path
             # 合并字典
-            custom_dict = {**custom_dict, **new_dict}
+            custom_dict["normal_words"] = {**custom_dict["normal_words"], **new_dict.get("normal_words", {})}
+            custom_dict["compound_words"] = {**custom_dict["compound_words"], **new_dict.get("compound_words", {})}
             # 确保目标目录存在
             os.makedirs(os.path.dirname(get_dict_path()), exist_ok=True)
             with open(get_dict_path(), "w", encoding="utf-8") as f:
@@ -176,25 +206,23 @@ def split_readings(raw):
     return [r.strip() for r in raw.split(",") if r.strip()]
 
 
-def update_dict_view(listbox):
+def update_dict_view(listbox, word_type):
     """更新词典列表显示"""
     listbox.delete(0, tk.END)
-    for kanji, readings in sorted(custom_dict.items()):
+    word_dict = custom_dict[word_type]
+    for kanji, readings in sorted(word_dict.items()):
         listbox.insert(tk.END, f"{kanji} → {', '.join(readings)}")
 
 
-def add_entry(kanji_entry, readings_entry, listbox, edit_window):
+def add_entry(kanji_entry, readings_entry, listbox, edit_window, word_type):
     """添加新词条"""
     kanji = kanji_entry.get().strip()
     readings = split_readings(readings_entry.get().strip())
     if kanji and readings:
         try:
-            custom_dict[kanji] = readings
-            dict_path = current_dict_path or get_dict_path()
-            os.makedirs(os.path.dirname(dict_path), exist_ok=True)
-            with open(dict_path, "w", encoding="utf-8") as f:
-                json.dump(custom_dict, f, ensure_ascii=False, indent=2)
-            update_dict_view(listbox)
+            custom_dict[word_type][kanji] = readings
+            save_custom_dict()
+            update_dict_view(listbox, word_type)
             kanji_entry.delete(0, tk.END)
             readings_entry.delete(0, tk.END)
             show_message(edit_window, "成功", "词条已添加")
@@ -205,7 +233,7 @@ def add_entry(kanji_entry, readings_entry, listbox, edit_window):
         show_message(edit_window, "警告", "请输入有效的汉字和假名", "warning")
 
 
-def delete_selected(listbox, edit_window):
+def delete_selected(listbox, edit_window, word_type):
     """删除选中的词条"""
     selected_items = listbox.curselection()
     if not selected_items:
@@ -217,7 +245,8 @@ def delete_selected(listbox, edit_window):
     set_window_icon(confirm_dialog)
 
     # 调整确认退出窗口大小
-    confirm_dialog.geometry("300x200")
+    dialog_width = 300
+    dialog_height = 200
 
     frame = tb.Frame(confirm_dialog, padding=10)
     frame.pack(fill=BOTH, expand=True)
@@ -230,16 +259,13 @@ def delete_selected(listbox, edit_window):
 
     def do_delete():
         try:
+            word_dict = custom_dict[word_type]
             for item in reversed(selected_items):
                 selected_kanji = listbox.get(item).split(" → ")[0]
-                del custom_dict[selected_kanji]
+                del word_dict[selected_kanji]
 
-            dict_path = current_dict_path or get_dict_path()
-            os.makedirs(os.path.dirname(dict_path), exist_ok=True)
-            with open(dict_path, "w", encoding="utf-8") as f:
-                json.dump(custom_dict, f, ensure_ascii=False, indent=2)
-
-            update_dict_view(listbox)
+            save_custom_dict()
+            update_dict_view(listbox, word_type)
             confirm_dialog.destroy()
             show_message(edit_window, "成功", f"已删除 {len(selected_items)} 个条目")
         except Exception as e:
@@ -249,15 +275,23 @@ def delete_selected(listbox, edit_window):
     tb.Button(button_frame, text="取消", bootstyle="secondary", command=confirm_dialog.destroy).pack(side=RIGHT,
                                                                                                      padx=10)
 
-    confirm_dialog.geometry(f"340x200+{x}+{y}")
+    # 计算确认对话框位置
+    parent_x = edit_window.winfo_x()
+    parent_y = edit_window.winfo_y()
+    parent_width = edit_window.winfo_width()
+    parent_height = edit_window.winfo_height()
+    x = parent_x + (parent_width - dialog_width) // 2
+    y = parent_y + (parent_height - dialog_height) // 2
+    confirm_dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
 
 
-def edit_entry(listbox, edit_window):
+def edit_entry(listbox, edit_window, word_type):
     """编辑选中的词条"""
     selected_item = listbox.curselection()
     if selected_item:
+        word_dict = custom_dict[word_type]
         selected_kanji = listbox.get(selected_item[0]).split(" → ")[0]
-        readings = custom_dict[selected_kanji]
+        readings = word_dict[selected_kanji]
 
         edit_dialog = tb.Toplevel(edit_window)
         edit_dialog.title("编辑词条")
@@ -290,15 +324,11 @@ def edit_entry(listbox, edit_window):
             if new_kanji and new_readings:
                 try:
                     if new_kanji != selected_kanji:
-                        del custom_dict[selected_kanji]
-                    custom_dict[new_kanji] = new_readings
+                        del word_dict[selected_kanji]
+                    word_dict[new_kanji] = new_readings
 
-                    dict_path = current_dict_path or get_dict_path()
-                    os.makedirs(os.path.dirname(dict_path), exist_ok=True)
-                    with open(dict_path, "w", encoding="utf-8") as f:
-                        json.dump(custom_dict, f, ensure_ascii=False, indent=2)
-
-                    update_dict_view(listbox)
+                    save_custom_dict()
+                    update_dict_view(listbox, word_type)
                     edit_dialog.destroy()
                     show_message(edit_window, "成功", "词条已更新")
                 except Exception as e:
@@ -310,7 +340,16 @@ def edit_entry(listbox, edit_window):
         tb.Button(button_frame, text="取消", bootstyle="secondary", command=edit_dialog.destroy).pack(side=RIGHT,
                                                                                                       padx=5)
 
-        edit_dialog.geometry(f"600x300+{x}+{y}")
+        # 计算编辑对话框位置
+        parent_x = edit_window.winfo_x()
+        parent_y = edit_window.winfo_y()
+        parent_width = edit_window.winfo_width()
+        parent_height = edit_window.winfo_height()
+        dialog_width = 600
+        dialog_height = 300
+        x = parent_x + (parent_width - dialog_width) // 2
+        y = parent_y + (parent_height - dialog_height) // 2
+        edit_dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
     else:
         show_message(edit_window, "警告", "请选择要编辑的条目", "warning")
 
@@ -349,10 +388,10 @@ def setup_context_menu(listbox, edit_window):
     listbox.bind("<Button-3>", show_context_menu)
 
 
-def open_edit_dict_window():
+def open_edit_dict_window(word_type):
     """打开词典编辑窗口"""
     edit_window = tb.Toplevel(root)
-    edit_window.title("编辑自定义词典")
+    edit_window.title(f"编辑{'复合词' if word_type == 'compound_words' else '普通词'}词典")
     set_window_icon(edit_window)
 
     dict_frame = tb.Frame(edit_window, padding=10)
@@ -363,10 +402,12 @@ def open_edit_dict_window():
     path_label.pack(anchor="w", pady=5)
 
     # 输入区域
-    input_frame = tb.LabelFrame(dict_frame, text="添加新词条", padding=10)
+    input_frame = tb.LabelFrame(dict_frame, text=f"添加新{'复合词' if word_type == 'compound_words' else '普通词'}词条",
+                                padding=10)
     input_frame.pack(fill=X, pady=5)
 
-    tb.Label(input_frame, text="汉字", bootstyle="inverse-light").pack(anchor="w")
+    tb.Label(input_frame, text=f"{'复合词' if word_type == 'compound_words' else '汉字'}",
+             bootstyle="inverse-light").pack(anchor="w")
     kanji_entry = tb.Entry(input_frame, font=("Segoe UI", 12))
     kanji_entry.pack(fill=X, pady=5)
 
@@ -379,11 +420,12 @@ def open_edit_dict_window():
     button_frame.pack(fill=X, pady=5)
 
     tb.Button(button_frame, text="添加词条", bootstyle="success",
-              command=lambda: add_entry(kanji_entry, readings_entry, listbox, edit_window)).pack(side=LEFT, padx=5)
+              command=lambda: add_entry(kanji_entry, readings_entry, listbox, edit_window, word_type)).pack(side=LEFT,
+                                                                                                            padx=5)
     tb.Button(button_frame, text="编辑词条", bootstyle="info",
-              command=lambda: edit_entry(listbox, edit_window)).pack(side=LEFT, padx=5)
+              command=lambda: edit_entry(listbox, edit_window, word_type)).pack(side=LEFT, padx=5)
     tb.Button(button_frame, text="删除选中", bootstyle="danger",
-              command=lambda: delete_selected(listbox, edit_window)).pack(side=LEFT, padx=5)
+              command=lambda: delete_selected(listbox, edit_window, word_type)).pack(side=LEFT, padx=5)
     tb.Button(button_frame, text="复制全部", bootstyle="secondary",
               command=lambda: copy_all(listbox, edit_window)).pack(side=RIGHT, padx=5)
 
@@ -414,9 +456,18 @@ def open_edit_dict_window():
     # 设置右键菜单
     setup_context_menu(listbox, edit_window)
     # 初始更新词典视图
-    update_dict_view(listbox)
+    update_dict_view(listbox, word_type)
 
-    edit_window.geometry(f"{width}x{height}+{x}+{y}")
+    # 计算编辑词典窗口位置
+    root_x = root.winfo_x()
+    root_y = root.winfo_y()
+    root_width = root.winfo_width()
+    root_height = root.winfo_height()
+    window_width = 800
+    window_height = 600
+    x = root_x + (root_width - window_width) // 2
+    y = root_y + (root_height - window_height) // 2
+    edit_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
 
 def select_path(path_entry):
@@ -455,8 +506,6 @@ def open_settings_window():
     settings_window.title("设置")
     set_window_icon(settings_window)
 
-    settings_window.geometry("600x300")
-
     settings_frame = tb.Frame(settings_window, padding=10)
     settings_frame.pack(fill=BOTH, expand=True)
 
@@ -473,7 +522,16 @@ def open_settings_window():
     tb.Button(button_frame, text="保存设置", bootstyle="success",
               command=lambda: save_settings(path_entry, settings_window)).pack(side=RIGHT, padx=5)
 
-    settings_window.geometry(f"500x150+{x}+{y}")
+    # 计算设置窗口位置
+    root_x = root.winfo_x()
+    root_y = root.winfo_y()
+    root_width = root.winfo_width()
+    root_height = root.winfo_height()
+    window_width = 500
+    window_height = 150
+    x = root_x + (root_width - window_width) // 2
+    y = root_y + (root_height - window_height) // 2
+    settings_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
 
 def open_about_window():
@@ -499,22 +557,26 @@ def open_about_window():
     except Exception as e:
         print(f"加载图片失败: {str(e)}")
 
-    tb.Label(about_frame, text="版本: 0.1", font=("Segoe UI", 12)).pack(pady=5)
+    tb.Label(about_frame, text="版本: 0.2", font=("Segoe UI", 12)).pack(pady=5)
     tb.Label(about_frame, text="https://github.com/kanocyann/hantokana", font=("Segoe UI", 12)).pack(pady=5)
 
-    # 自动调整窗口大小
-    about_window.update_idletasks()
-    width = about_frame.winfo_reqwidth() + 20
-    height = about_frame.winfo_reqheight() + 20
-    x = root.winfo_x() + (root.winfo_width() - width) // 2
-    y = root.winfo_y() + (root.winfo_height() - height) // 2
-    about_window.geometry(f"{width}x{height}+{x}+{y}")
+    # 计算关于窗口位置
+    root_x = root.winfo_x()
+    root_y = root.winfo_y()
+    root_width = root.winfo_width()
+    root_height = root.winfo_height()
+    about_frame.update_idletasks()
+    window_width = about_frame.winfo_reqwidth() + 20
+    window_height = about_frame.winfo_reqheight() + 20
+    x = root_x + (root_width - window_width) // 2
+    y = root_y + (root_height - window_height) // 2
+    about_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
 
 def get_kana(surface):
     """用 pyKakasi 将词转换为平假名"""
     kana = ""
-    for token in conv.do(surface):  # 注意这里改为使用conv.do()
+    for token in conv.convert(surface):
         kana += token['hira']
     return kana
 
@@ -551,10 +613,7 @@ def convert_text(text_input, text_output_text, use_hira, use_kata, use_roma):
                 next_word = words[i + 1]
                 combined = current.surface + next_word.surface
 
-                # 定义需要保持完整的词列表
-                keep_whole = ["なって", "消える", "ている", "でした"]  # 可根据需要扩展
-
-                if combined in keep_whole:
+                if combined in custom_dict["compound_words"]:
                     merged_words.append(combined)
                     i += 2
                     continue
@@ -565,27 +624,25 @@ def convert_text(text_input, text_output_text, use_hira, use_kata, use_roma):
         # 处理合并后的词
         for word in merged_words:
             # 优先使用自定义词典
-            if word in custom_dict:
-                readings = custom_dict[word]
-            else:
+            readings = custom_dict["normal_words"].get(word) or custom_dict["compound_words"].get(word)
+            if not readings:
                 # 使用pykakasi转换
                 converted = conv.convert(word)
                 readings = [item['hira'] for item in converted]
 
-            line = f"[{word}]"
             for reading in readings:
+                hira = jaconv.kata2hira(reading)
+                line = f"[{word}]"
                 if use_hira.get():
-                    hira = jaconv.kata2hira(reading)
-                    line += " → [" + hira + "]"
+                    line += f" → [{hira}]"
                 if use_kata.get():
-                    kata = jaconv.hira2kata(reading)
-                    line += " → [" + kata + "]"
+                    kata = jaconv.hira2kata(hira)
+                    line += f" → [{kata}]"
                 if use_roma.get():
                     roma_item = conv.convert(reading)[0]
                     roma = roma_item['hepburn']
-                    line += " → [" + roma + "]"
-            result += line + "\n"
-
+                    line += f" → [{roma}]"
+                result += line + "\n"
         update_output(text_output_text, result.strip())
     except Exception as e:
         show_message(root, "错误", str(e), "error")
@@ -629,7 +686,16 @@ def confirm_exit():
     tb.Button(button_frame, text="取消", bootstyle="secondary", command=confirm_dialog.destroy).pack(side=RIGHT,
                                                                                                      padx=10)
 
-    confirm_dialog.geometry(f"340x200+{x}+{y}")
+    # 计算确认退出窗口位置
+    root_x = root.winfo_x()
+    root_y = root.winfo_y()
+    root_width = root.winfo_width()
+    root_height = root.winfo_height()
+    dialog_width = 340
+    dialog_height = 200
+    x = root_x + (root_width - dialog_width) // 2
+    y = root_y + (root_height - dialog_height) // 2
+    confirm_dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
 
 
 # 加载配置和字典
@@ -640,17 +706,19 @@ load_custom_dict()
 root = tb.Window(themename="minty")
 root.title("日文汉字-假名/罗马音 转换工具")
 # 设置主窗口初始大小为 850x700
-root.geometry("850x700")
+window_width = 850
+window_height = 700
 
-# 主窗口置于屏幕中心
-root.update_idletasks()
-width = root.winfo_width()
-height = root.winfo_height()
+# 获取屏幕尺寸
 screen_width = root.winfo_screenwidth()
 screen_height = root.winfo_screenheight()
-x = (screen_width - width) // 2
-y = (screen_height - height) // 2
-root.geometry(f"{width}x{height}+{x}+{y}")
+
+# 计算主窗口位置
+x = (screen_width - window_width) // 2
+y = (screen_height - window_height) // 2
+
+# 直接设置主窗口位置
+root.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
 set_window_icon(root)
 
@@ -677,7 +745,8 @@ menubar.add_cascade(label="帮助", menu=help_menu)
 
 # 添加菜单项
 file_menu.add_command(label="导入词典", command=load_dict)
-file_menu.add_command(label="编辑自定义词典", command=open_edit_dict_window)
+file_menu.add_command(label="编辑普通词词典", command=lambda: open_edit_dict_window("normal_words"))
+file_menu.add_command(label="编辑复合词词典", command=lambda: open_edit_dict_window("compound_words"))
 settings_menu.add_command(label="设置默认词库路径", command=open_settings_window)
 file_menu.add_command(label="退出", command=confirm_exit)
 help_menu.add_command(label="关于", command=open_about_window)
