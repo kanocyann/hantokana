@@ -601,28 +601,19 @@ def convert_text(text_input, text_output_text, use_hira, use_kata, use_roma):
     try:
         # 先进行正常分词
         words = tagger(raw)
-
-        # 合并应该保持完整的词
-        merged_words = []
         i = 0
         while i < len(words):
-            current = words[i]
-
-            # 检查是否需要与下一个词合并
-            if i < len(words) - 1:
-                next_word = words[i + 1]
-                combined = current.surface + next_word.surface
-
+            # 尝试合并复合词
+            for j in range(len(words), i, -1):
+                combined = ''.join([w.surface for w in words[i:j]])
                 if combined in custom_dict["compound_words"]:
-                    merged_words.append(combined)
-                    i += 2
-                    continue
+                    word = combined
+                    i = j
+                    break
+            else:
+                word = words[i].surface
+                i += 1
 
-            merged_words.append(current.surface)
-            i += 1
-
-        # 处理合并后的词
-        for word in merged_words:
             # 优先使用自定义词典
             readings = custom_dict["normal_words"].get(word) or custom_dict["compound_words"].get(word)
             if not readings:
