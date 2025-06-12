@@ -26,15 +26,15 @@
 
 主界面
 
-![image-20250505184950352](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/20250505184950417.png)
+![image-20250613001555080](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202506130016247.png)
 
 词典编辑界面
 
-![image-20250505185529764](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/20250505185529803.png)
+![image-20250613001623017](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202506130016090.png)
 
 ### 下载与使用
 
-一、下载Release中打包好的exe直接使用
+一、下载Release中打包好的exe安装包进行安装，然后开始使用
 
 二、本地环境启动
 
