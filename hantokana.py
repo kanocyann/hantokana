@@ -1,780 +1,2388 @@
 import sys
-import jaconv
-import ttkbootstrap as tb
-from ttkbootstrap.constants import *
-from ttkbootstrap.scrolled import ScrolledText
-import tkinter as tk
-from tkinter import Menu, filedialog
 import os
 import json
 from ctypes import windll
-from PIL import Image, ImageTk
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                             QTextEdit, QPushButton, QCheckBox, QLabel, QDialog,
+                              QFileDialog, QMenu, QListWidget, QLineEdit, 
+                             QFrame, QStyleFactory)
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QIcon, QAction, QFont, QPixmap, QDesktopServices, QPainter, QPen, QColor
+import jaconv
+import pykakasi
+from fugashi import Tagger
+from PySide6.QtCore import QMimeData
 
 # 高清支持
 windll.shcore.SetProcessDpiAwareness(1)
 
-# 全局变量
-custom_dict = {
-    "normal_words": {},
-    "compound_words": {}
+# 定义样式表
+STYLE_SHEET = """
+QMainWindow {
+    background-color: #f0f2f5;
 }
-current_dict_path = None  # 跟踪当前使用的字典路径
-tagger = None  # 初始化 tagger
-conv = None  # 初始化 conv
 
+QLabel {
+    font-size: 13px;
+    color: #1f1f1f;
+    background: transparent;
+    padding: 0px;
+    margin: 0px;
+    border: none;
+}
 
-def resource_path(relative_path):
-    """获取资源的绝对路径，适用于开发环境和PyInstaller打包环境"""
-    if hasattr(sys, "_MEIPASS"):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
+QLabel[type="success"] {
+    color: #52c41a;
+    background: transparent;
+}
 
+QLabel[type="warning"] {
+    color: #faad14;
+    background: transparent;
+}
 
-def get_appdata_path():
-    """获取应用程序数据目录路径"""
-    appdata = os.getenv('APPDATA')
-    app_dir = os.path.join(appdata, 'Hantokana')
-    os.makedirs(app_dir, exist_ok=True)
-    return app_dir
+QLabel[type="error"] {
+    color: #f5222d;
+    background: transparent;
+}
 
+QLabel[type="info"] {
+    color: #73BBA3;
+    background: transparent;
+}
 
-def get_dict_path():
-    """获取字典文件永久存储路径"""
-    return os.path.join(get_appdata_path(), 'custom_dict.json')
+QPushButton {
+    background-color: #73BBA3;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    min-width: 100px;
+}
 
+QPushButton:hover {
+    background-color: #88D66C;
+}
 
-def get_config_path():
-    """获取配置文件路径"""
-    return os.path.join(get_appdata_path(), 'config.json')
+QPushButton:pressed {
+    background-color: #5A9D8C;
+}
 
+QPushButton:disabled {
+    background-color: #d9d9d9;
+    color: #999999;
+}
 
-# 延迟导入模块
-def init_tagger():
-    try:
-        from fugashi import Tagger
-        tagger = Tagger('-r "' + resource_path('dicdir/mecabrc') + '" -d "' + resource_path('dicdir') + '"')
-    except Exception:
-        from fugashi import Tagger
-        tagger = Tagger()
-    return tagger
+QPushButton[type="success"] {
+    background-color: #52c41a;
+}
 
+QPushButton[type="success"]:hover {
+    background-color: #73d13d;
+}
 
-def init_kks():
-    import pykakasi
-    kks = pykakasi.kakasi()
-    # 使用新的API设置模式
-    kks.setMode("J", "a")
-    kks.setMode("K", "a")
-    kks.setMode("H", "a")
-    kks.setMode("r", "Hepburn")
-    return kks.getConverter()
+QPushButton[type="success"]:pressed {
+    background-color: #389e0d;
+}
 
+QPushButton[type="warning"] {
+    background-color: #faad14;
+}
 
-def load_config():
-    """加载配置文件"""
-    global current_dict_path
-    config_path = get_config_path()
-    if os.path.exists(config_path):
+QPushButton[type="warning"]:hover {
+    background-color: #ffc53d;
+}
+
+QPushButton[type="warning"]:pressed {
+    background-color: #d48806;
+}
+
+QPushButton[type="error"] {
+    background-color: #f5222d;
+}
+
+QPushButton[type="error"]:hover {
+    background-color: #ff4d4f;
+}
+
+QPushButton[type="error"]:pressed {
+    background-color: #cf1322;
+}
+
+QTextEdit {
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    padding: 8px;
+    background-color: white;
+    font-size: 13px;
+    selection-background-color: #73BBA3;
+}
+
+QTextEdit:focus {
+    border-color: #88D66C;
+}
+
+QLineEdit {
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    padding: 8px;
+    background-color: white;
+    font-size: 13px;
+}
+
+QLineEdit:focus {
+    border-color: #88D66C;
+}
+
+QCheckBox {
+    font-size: 13px;
+    spacing: 8px;
+    color: #1f1f1f;
+    background: transparent;
+    padding: 0px;
+    margin: 0px;
+    border: none;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #d9d9d9;
+    border-radius: 2px;
+    background-color: white;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #73BBA3;
+    border-color: #73BBA3;
+}
+
+QCheckBox::indicator:unchecked {
+    background-color: white;
+    border-color: #d9d9d9;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #73BBA3;
+}
+
+QListWidget {
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 13px;
+    padding: 4px;
+    outline: none;
+}
+
+QListWidget::item {
+    padding: 8px;
+    border-bottom: 1px solid #f0f0f0;
+    background: transparent;
+    border-radius: 4px;
+    margin: 2px 4px;
+}
+
+QListWidget::item:selected {
+    background-color: #E8F5E9;
+    color: #73BBA3;
+    border: 1px solid #73BBA3;
+    border-radius: 6px;
+    margin: 1px 3px;
+    outline: none;
+    text-decoration: none;
+}
+
+QListWidget::item:selected:focus {
+    outline: none;
+    border: 1px solid #73BBA3;
+}
+
+QListWidget::item:hover {
+    background-color: #f5f5f5;
+    border-radius: 4px;
+}
+
+QFrame {
+    background-color: transparent;
+    border: none;
+}
+
+QFrame[type="border"] {
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    background-color: white;
+}
+
+QMenu {
+    background-color: white;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 8px 16px;
+    border-radius: 2px;
+    background: transparent;
+    margin: 1px 2px;
+    font-size: 12px;
+    border: none;
+}
+
+QMenu::item:selected {
+    background-color: #E8F5E9;
+    color: #73BBA3;
+    border: 1px solid #73BBA3;
+    border-radius: 2px;
+}
+
+QMenuBar {
+    background-color: white;
+    border-bottom: 1px solid #d9d9d9;
+}
+
+QMenuBar::item {
+    padding: 6px 10px;
+    border-radius: 2px;
+    background: transparent;
+    margin: 1px;
+    font-size: 12px;
+    border: none;
+}
+
+QMenuBar::item:selected {
+    background-color: #E8F5E9;
+    color: #73BBA3;
+    border: 1px solid #73BBA3;
+    border-radius: 2px;
+}
+
+QScrollBar:vertical {
+    border: none;
+    background-color: #f5f5f5;
+    width: 8px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #73BBA3;
+    border-radius: 4px;
+    min-height: 20px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #88D66C;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background-color: #f5f5f5;
+    height: 8px;
+    margin: 0px;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #73BBA3;
+    border-radius: 4px;
+    min-width: 20px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #88D66C;
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+/* 自定义消息对话框样式 */
+MessageDialog QLabel {
+    font-size: 14px;
+    color: #1f1f1f;
+    background: transparent;
+    padding: 0px;
+    margin: 0px;
+    border: none;
+}
+
+MessageDialog QPushButton {
+    background-color: #73BBA3;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    min-width: 100px;
+}
+
+MessageDialog QPushButton:hover {
+    background-color: #88D66C;
+}
+
+MessageDialog QPushButton:pressed {
+    background-color: #5A9D8C;
+}
+
+/* 设置窗口样式 */
+QDialog[windowTitle="设置"] QLabel {
+    font-size: 16px;
+    font-weight: bold;
+    color: #1f1f1f;
+    background: transparent;
+    padding: 0px;
+    margin: 0px;
+    border: none;
+}
+
+QDialog[windowTitle="设置"] QFrame {
+    background-color: #fafafa;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    padding: 8px;
+}
+
+QDialog[windowTitle="设置"] QLineEdit {
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    padding: 8px;
+    background-color: white;
+    font-size: 13px;
+}
+
+QDialog[windowTitle="设置"] QLineEdit:focus {
+    border-color: #40a9ff;
+}
+
+/* 关于窗口样式 */
+QDialog[windowTitle="关于"] QLabel {
+    font-size: 14px;
+    color: #1f1f1f;
+    background: transparent;
+    padding: 0px;
+    margin: 0px;
+    border: none;
+}
+
+QDialog[windowTitle="关于"] QLabel[title="true"] {
+    font-size: 18px;
+    font-weight: bold;
+    color: #1890ff;
+    background: transparent;
+}
+
+QDialog[windowTitle="关于"] QFrame {
+    background-color: #fafafa;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    padding: 16px;
+}
+
+QDialog[windowTitle="关于"] QLabel[link="true"] {
+    color: #1890ff;
+    background: transparent;
+}
+
+QDialog[windowTitle="关于"] QLabel[link="true"]:hover {
+    color: #40a9ff;
+}
+
+/* 词典编辑对话框样式 */
+DictEditDialog QLabel {
+    font-size: 14px;
+    color: #1f1f1f;
+    background: transparent;
+    padding: 0px;
+    margin: 0px;
+    border: none;
+}
+
+DictEditDialog QFrame {
+    background-color: #fafafa;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    padding: 16px;
+}
+
+DictEditDialog QListWidget {
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 13px;
+}
+
+DictEditDialog QListWidget::item {
+    padding: 8px;
+    border-bottom: 1px solid #f0f0f0;
+    background: transparent;
+    border-radius: 4px;
+    margin: 2px 4px;
+}
+
+DictEditDialog QListWidget::item:selected {
+    background-color: #E8F5E9;
+    color: #73BBA3;
+    border: 1px solid #73BBA3;
+    border-radius: 6px;
+    margin: 1px 3px;
+    outline: none;
+    text-decoration: none;
+}
+
+DictEditDialog QListWidget::item:selected:focus {
+    outline: none;
+    border: 1px solid #73BBA3;
+}
+
+DictEditDialog QListWidget::item:hover {
+    background-color: #f5f5f5;
+    border-radius: 4px;
+}
+
+DictEditDialog QPushButton {
+    background-color: #73BBA3;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    min-width: 100px;
+}
+
+DictEditDialog QPushButton:hover {
+    background-color: #88D66C;
+}
+
+DictEditDialog QPushButton:pressed {
+    background-color: #5A9D8C;
+}
+
+DictEditDialog QPushButton[type="secondary"] {
+    background-color: #f5f5f5;
+    color: #1f1f1f;
+    border: 1px solid #d9d9d9;
+}
+
+DictEditDialog QPushButton[type="secondary"]:hover {
+    background-color: #fafafa;
+    border-color: #40a9ff;
+    color: #40a9ff;
+}
+
+DictEditDialog QPushButton[type="secondary"]:pressed {
+    background-color: #f0f0f0;
+}
+"""
+
+class CustomCheckBox(QCheckBox):
+    """自定义复选框，支持绿色背景"""
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setStyleSheet("""
+            QCheckBox {
+                font-size: 13px;
+                spacing: 8px;
+                color: #1f1f1f;
+                background: transparent;
+                padding: 0px;
+                margin: 0px;
+                border: none;
+            }
+            
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #d9d9d9;
+                border-radius: 2px;
+                background-color: white;
+            }
+            
+            QCheckBox::indicator:checked {
+                background-color: #73BBA3;
+                border-color: #73BBA3;
+            }
+            
+            QCheckBox::indicator:unchecked {
+                background-color: white;
+                border-color: #d9d9d9;
+            }
+            
+            QCheckBox::indicator:hover {
+                border-color: #73BBA3;
+            }
+        """)
+
+class PlainTextEdit(QTextEdit):
+    def insertFromMimeData(self, source: QMimeData):
+        self.insertPlainText(source.text())
+
+class CustomMessageBox(QDialog):
+    """自定义消息框"""
+    def __init__(self, parent, title, message, style='info'):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setModal(True)
+        
+        # 设置窗口图标 - 添加错误处理
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                current_dict_path = config.get('dict_path')
-        except Exception as e:
-            print(f"加载配置文件失败: {str(e)}")
-
-
-def load_custom_dict():
-    """加载自定义词典"""
-    global custom_dict, current_dict_path
-    if current_dict_path and os.path.exists(current_dict_path):
-        custom_dict_path = current_dict_path
-    else:
-        custom_dict_path = get_dict_path()
-
-    if not os.path.exists(custom_dict_path):
-        try:
-            initial_dict_path = resource_path("custom_dict.json")
-            if os.path.exists(initial_dict_path):
-                with open(initial_dict_path, "r", encoding="utf-8") as src:
-                    data = src.read()
-                with open(custom_dict_path, "w", encoding="utf-8") as dst:
-                    dst.write(data)
+            if hasattr(parent, 'resource_path'):
+                icon_path = parent.resource_path("icon.ico")
+                self.setWindowIcon(QIcon(icon_path))
             else:
-                with open(custom_dict_path, "w", encoding="utf-8") as f:
-                    json.dump({
-                        "normal_words": {},
-                        "compound_words": {}
-                    }, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"初始化字典文件失败: {str(e)}")
+                # 如果父窗口没有resource_path方法，尝试直接使用相对路径
+                icon_path = "icon.ico"
+                if os.path.exists(icon_path):
+                    self.setWindowIcon(QIcon(icon_path))
+        except Exception:
+            # 如果设置图标失败，忽略错误继续执行
+            pass
+        
+        # 设置窗口样式
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #fafafa;
+                border: 0px solid;
+                border-radius: 8px;
+            }
+            QLabel {
+                background: transparent;
+                border: 0px solid;
+                margin: 0px;
+                padding: 0px;
+            }
+            QPushButton {
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 60px;
+            }
+            QPushButton:hover {
+                background-color: rgba(0, 0, 0, 0.05);
+            }
+            QPushButton:pressed {
+                background-color: rgba(0, 0, 0, 0.1);
+            }
+        """)
+        
+        # 创建布局
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)  # 减小整体间距
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 图标
+        icon_label = QLabel()
+        if style == 'info':
+            icon_label.setText("ℹ")
+            color = "#73BBA3"
+        elif style == 'success':
+            icon_label.setText("✓")
+            color = "#52c41a"
+        elif style == 'warning':
+            icon_label.setText("⚠")
+            color = "#faad14"
+        elif style == 'error':
+            icon_label.setText("✕")
+            color = "#f5222d"
+        elif style == 'question':
+            icon_label.setText("?")
+            color = "#73BBA3"
+        else:
+            icon_label.setText("ℹ")
+            color = "#73BBA3"
+            
+        icon_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: 24px;
+                color: {color};
+                background: transparent;
+                border: 0px solid;
+                margin: 0px;
+                padding: 0px;
+                margin-bottom: 2px;
+            }}
+        """)
+        icon_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(icon_label)
+        
+        # 消息
+        message_label = QLabel(message)
+        message_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #1f1f1f;
+                background: transparent;
+                border: 0px solid;
+                margin: 0px;
+                padding: 0px;
+                margin-top: 2px;
+            }
+        """)
+        message_label.setAlignment(Qt.AlignCenter)
+        message_label.setWordWrap(True)
+        layout.addWidget(message_label)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
+        
+        if style == 'question':
+            # 是/否按钮
+            yes_button = QPushButton("是")
+            yes_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {color};
+                    color: white;
+                    border: none;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    min-width: 60px;
+                }}
+                QPushButton:hover {{
+                    background-color: {color}dd;
+                }}
+                QPushButton:pressed {{
+                    background-color: {color}bb;
+                }}
+            """)
+            yes_button.clicked.connect(self.accept)
+            
+            no_button = QPushButton("否")
+            no_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #f5f5f5;
+                    color: #666666;
+                    border: 1px solid #d9d9d9;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    min-width: 60px;
+                }
+                QPushButton:hover {
+                    background-color: #fafafa;
+                    border-color: #73BBA3;
+                    color: #73BBA3;
+                }
+            """)
+            no_button.clicked.connect(self.reject)
+            
+            button_layout.addWidget(yes_button)
+            button_layout.addWidget(no_button)
+        else:
+            # 确定按钮
+            ok_button = QPushButton("确定")
+            ok_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {color};
+                    color: white;
+                    border: none;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    min-width: 60px;
+                }}
+                QPushButton:hover {{
+                    background-color: {color}dd;
+                }}
+                QPushButton:pressed {{
+                    background-color: {color}bb;
+                }}
+            """)
+            ok_button.clicked.connect(self.accept)
+            button_layout.addWidget(ok_button)
+        
+        button_layout.setAlignment(Qt.AlignCenter)
+        layout.addLayout(button_layout)
+        
+        # 设置最小大小
+        self.setMinimumWidth(280)
+        
+        # 居中显示
+        self.center_on_parent(parent)
+    
+    def center_on_parent(self, parent):
+        """居中显示"""
+        if parent:
+            self.move(parent.frameGeometry().center() - self.rect().center())
 
-    try:
-        with open(custom_dict_path, "r", encoding="utf-8") as f:
-            custom_dict = json.load(f)
-        current_dict_path = custom_dict_path
-    except Exception as e:
-        print(f"加载字典文件失败: {str(e)}")
-        custom_dict = {
+class MessageDialog(QDialog):
+    """自定义消息对话框"""
+    def __init__(self, parent, title, message, style='info'):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setModal(True)
+        
+        # 设置窗口图标 - 添加错误处理
+        try:
+            if hasattr(parent, 'resource_path'):
+                icon_path = parent.resource_path("icon.ico")
+                self.setWindowIcon(QIcon(icon_path))
+            else:
+                # 如果父窗口没有resource_path方法，尝试直接使用相对路径
+                icon_path = "icon.ico"
+                if os.path.exists(icon_path):
+                    self.setWindowIcon(QIcon(icon_path))
+        except Exception:
+            # 如果设置图标失败，忽略错误继续执行
+            pass
+        
+        # 设置窗口大小
+        self.setFixedSize(360, 220)
+        
+        # 创建布局
+        layout = QVBoxLayout(self)
+        layout.setSpacing(16)
+        layout.setContentsMargins(24, 24, 24, 24)
+        
+        # 设置图标和消息
+        icon_text = {
+            'info': '✓',
+            'warning': '⚠',
+            'error': '✗',
+            'success': '✓',
+            'question': '?'
+        }.get(style, 'i')
+        
+        icon_label = QLabel(icon_text)
+        icon_label.setStyleSheet(f"""
+            font-size: 36px;
+            color: {
+                '#52c41a' if style in ['info', 'success'] else
+                '#faad14' if style == 'warning' else
+                '#f5222d' if style == 'error' else
+                '#1890ff' if style == 'question' else
+                '#1890ff'
+            };
+            font-weight: bold;
+            padding: 8px;
+            background-color: {
+                '#f6ffed' if style in ['info', 'success'] else
+                '#fffbe6' if style == 'warning' else
+                '#fff1f0' if style == 'error' else
+                '#e6f7ff' if style == 'question' else
+                '#e6f7ff'
+            };
+            border-radius: 50%;
+            min-width: 64px;
+            min-height: 64px;
+        """)
+        icon_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(icon_label, alignment=Qt.AlignCenter)
+        
+        message_label = QLabel(message)
+        message_label.setStyleSheet("""
+            font-size: 14px;
+            color: #1f1f1f;
+            font-weight: bold;
+            padding: 8px;
+            background-color: #fafafa;
+            border-radius: 4px;
+        """)
+        message_label.setAlignment(Qt.AlignCenter)
+        message_label.setWordWrap(True)
+        layout.addWidget(message_label)
+        
+        # 确定按钮
+        ok_button = QPushButton("确定")
+        ok_button.setFixedWidth(120)
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #1890ff;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #40a9ff;
+            }
+            QPushButton:pressed {
+                background-color: #096dd9;
+            }
+        """)
+        ok_button.clicked.connect(self.accept)
+        layout.addWidget(ok_button, alignment=Qt.AlignCenter)
+        
+        # 居中显示
+        self.center_on_parent(parent)
+    
+    def center_on_parent(self, parent):
+        """在父窗口中心显示"""
+        if parent:
+            self.move(parent.frameGeometry().center() - self.rect().center())
+
+class DictEditDialog(QDialog):
+    """词典编辑对话框"""
+    def __init__(self, parent, word_type, custom_dict):
+        super().__init__(parent)
+        self.word_type = word_type
+        self.custom_dict = custom_dict
+        self.setWindowTitle(f"编辑{'复合词' if word_type == 'compound_words' else '普通词'}词典")
+        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setModal(True)
+        self.setMinimumSize(800, 600)
+        
+        # 设置窗口图标 - 添加错误处理
+        try:
+            if hasattr(parent, 'resource_path'):
+                icon_path = parent.resource_path("icon.ico")
+                self.setWindowIcon(QIcon(icon_path))
+            else:
+                # 如果父窗口没有resource_path方法，尝试直接使用相对路径
+                icon_path = "icon.ico"
+                if os.path.exists(icon_path):
+                    self.setWindowIcon(QIcon(icon_path))
+        except Exception:
+            # 如果设置图标失败，忽略错误继续执行
+            pass
+        
+        # 创建布局
+        layout = QVBoxLayout(self)
+        layout.setSpacing(16)
+        layout.setContentsMargins(24, 24, 24, 24)
+        
+        # 路径显示
+        path_label = QLabel(f"当前词典文件路径: {parent.current_dict_path}")
+        path_label.setStyleSheet("color: #666666;")
+        layout.addWidget(path_label)
+        
+        # 输入区域
+        input_frame = QFrame()
+        input_frame.setFrameStyle(QFrame.StyledPanel)
+        input_frame.setStyleSheet("""
+            QFrame {
+                background-color: #fafafa;
+                border: 1px solid #e8e8e8;
+                border-radius: 6px;
+                padding: 12px;
+            }
+        """)
+        input_layout = QVBoxLayout(input_frame)
+        input_layout.setSpacing(8)  # 减小间距
+        input_layout.setContentsMargins(12, 12, 12, 12)  # 设置内边距
+        
+        # 添加标签，去掉底框线
+        word_label = QLabel(f"{'复合词' if word_type == 'compound_words' else '汉字'}")
+        word_label.setStyleSheet("""
+            QLabel {
+                border: none;
+                font-size: 13px;
+                color: #333333;
+                font-weight: 500;
+                margin-bottom: 2px;
+                padding-left: 0px;
+            }
+        """)
+        input_layout.addWidget(word_label)
+        
+        self.kanji_edit = QLineEdit()
+        self.kanji_edit.setPlaceholderText("请输入汉字")
+        self.kanji_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 6px 8px;
+                background-color: white;
+                font-size: 13px;
+                min-height: 24px;
+                margin: 0px;
+            }
+            QLineEdit:focus {
+                border-color: #73BBA3;
+            }
+        """)
+        input_layout.addWidget(self.kanji_edit)
+        
+        # 添加标签，去掉底框线
+        reading_label = QLabel("对应假名 (用逗号间隔)")
+        reading_label.setStyleSheet("""
+            QLabel {
+                border: none;
+                font-size: 13px;
+                color: #333333;
+                font-weight: 500;
+                margin-top: 8px;
+                margin-bottom: 2px;
+                padding-left: 0px;
+            }
+        """)
+        input_layout.addWidget(reading_label)
+        
+        self.readings_edit = QLineEdit()
+        self.readings_edit.setPlaceholderText("请输入假名，用逗号分隔")
+        self.readings_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 6px 8px;
+                background-color: white;
+                font-size: 13px;
+                min-height: 24px;
+                margin: 0px;
+            }
+            QLineEdit:focus {
+                border-color: #73BBA3;
+            }
+        """)
+        input_layout.addWidget(self.readings_edit)
+        
+        layout.addWidget(input_frame)
+        
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(12)
+        
+        add_button = QPushButton("添加词条")
+        add_button.setStyleSheet("""
+            QPushButton {
+                background-color: #73BBA3;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #88D66C;
+            }
+            QPushButton:pressed {
+                background-color: #5A9D8C;
+            }
+        """)
+        add_button.clicked.connect(self.add_entry)
+        
+        edit_button = QPushButton("编辑词条")
+        edit_button.setStyleSheet("""
+            QPushButton {
+                background-color: #FFA500;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #FFB700;
+            }
+            QPushButton:pressed {
+                background-color: #FF8C00;
+            }
+        """)
+        edit_button.clicked.connect(self.edit_entry)
+        
+        delete_button = QPushButton("删除选中")
+        delete_button.setStyleSheet("""
+            QPushButton {
+                background-color: #F49BAB;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #FFAAAA;
+            }
+            QPushButton:pressed {
+                background-color: #FF9898;
+            }
+        """)
+        delete_button.clicked.connect(self.delete_selected)
+        
+        copy_all_button = QPushButton("复制全部")
+        copy_all_button.setStyleSheet("""
+            QPushButton {
+                background-color: #1890ff;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #40a9ff;
+            }
+            QPushButton:pressed {
+                background-color: #096dd9;
+            }
+        """)
+        copy_all_button.clicked.connect(self.copy_all)
+        
+        button_layout.addWidget(add_button)
+        button_layout.addWidget(edit_button)
+        button_layout.addWidget(delete_button)
+        button_layout.addWidget(copy_all_button)
+        
+        layout.addLayout(button_layout)
+        
+        # 词典列表
+        self.list_widget = QListWidget()
+        self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list_widget.customContextMenuRequested.connect(self.show_context_menu)
+        self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                background-color: white;
+                font-size: 13px;
+                padding: 4px;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #f0f0f0;
+                background: transparent;
+                border-radius: 4px;
+                margin: 2px 4px;
+            }
+            QListWidget::item:selected {
+                background-color: #E8F5E9;
+                color: #73BBA3;
+                border: 1px solid #73BBA3;
+                border-radius: 6px;
+                margin: 1px 3px;
+                outline: none;
+                text-decoration: none;
+            }
+            QListWidget::item:hover {
+                background-color: #f5f5f5;
+                border-radius: 4px;
+            }
+            
+            /* 垂直滚动条样式 */
+            QListWidget QScrollBar:vertical {
+                background-color: #f0f0f0;
+                width: 12px;
+                border-radius: 6px;
+                margin: 0px;
+            }
+            
+            QListWidget QScrollBar::handle:vertical {
+                background-color: #c0c0c0;
+                border-radius: 6px;
+                min-height: 20px;
+                margin: 2px;
+            }
+            
+            QListWidget QScrollBar::handle:vertical:hover {
+                background-color: #a0a0a0;
+            }
+            
+            QListWidget QScrollBar::handle:vertical:pressed {
+                background-color: #808080;
+            }
+            
+            QListWidget QScrollBar::add-line:vertical {
+                height: 0px;
+                subcontrol-position: bottom;
+                subcontrol-origin: margin;
+            }
+            
+            QListWidget QScrollBar::sub-line:vertical {
+                height: 0px;
+                subcontrol-position: top;
+                subcontrol-origin: margin;
+            }
+            
+            QListWidget QScrollBar::add-page:vertical,
+            QListWidget QScrollBar::sub-page:vertical {
+                background-color: transparent;
+            }
+            
+            /* 水平滚动条样式 */
+            QListWidget QScrollBar:horizontal {
+                background-color: #f0f0f0;
+                height: 12px;
+                border-radius: 6px;
+                margin: 0px;
+            }
+            
+            QListWidget QScrollBar::handle:horizontal {
+                background-color: #c0c0c0;
+                border-radius: 6px;
+                min-width: 20px;
+                margin: 2px;
+            }
+            
+            QListWidget QScrollBar::handle:horizontal:hover {
+                background-color: #a0a0a0;
+            }
+            
+            QListWidget QScrollBar::handle:horizontal:pressed {
+                background-color: #808080;
+            }
+            
+            QListWidget QScrollBar::add-line:horizontal {
+                width: 0px;
+                subcontrol-position: right;
+                subcontrol-origin: margin;
+            }
+            
+            QListWidget QScrollBar::sub-line:horizontal {
+                width: 0px;
+                subcontrol-position: left;
+                subcontrol-origin: margin;
+            }
+            
+            QListWidget QScrollBar::add-page:horizontal,
+            QListWidget QScrollBar::sub-page:horizontal {
+                background-color: transparent;
+            }
+        """)
+        layout.addWidget(self.list_widget)
+        
+        # 选中即复制选项
+        copy_layout = QHBoxLayout()
+        copy_layout.addStretch()
+        self.copy_on_select = CustomCheckBox("选中即复制")
+        self.copy_on_select.setChecked(False)
+        copy_layout.addWidget(self.copy_on_select)
+        copy_layout.addStretch()
+        layout.addLayout(copy_layout)
+        
+        # 更新列表
+        self.update_dict_view()
+        
+        # 居中显示
+        self.center_on_parent(parent)
+    
+    def show_context_menu(self, position):
+        """显示右键菜单"""
+        menu = QMenu()
+        copy_action = menu.addAction("复制")
+        edit_action = menu.addAction("编辑")
+        delete_action = menu.addAction("删除")
+        
+        action = menu.exec_(self.list_widget.mapToGlobal(position))
+        if action == copy_action:
+            self.copy_selected()
+        elif action == edit_action:
+            self.edit_entry()
+        elif action == delete_action:
+            self.delete_selected()
+    
+    def copy_selected(self):
+        """复制选中的词条"""
+        selected_items = self.list_widget.selectedItems()
+        if not selected_items:
+            CustomMessageBox(self, "提示", "请先选择要复制的词条", style='info').exec()
+            return
+        
+        text = "\n".join(item.text() for item in selected_items)
+        QApplication.clipboard().setText(text)
+        CustomMessageBox(self, "成功", "已复制到剪贴板", style='success').exec()
+    
+    def center_on_parent(self, parent):
+        """在父窗口中心显示"""
+        if parent:
+            self.move(parent.frameGeometry().center() - self.rect().center())
+    
+    def update_dict_view(self):
+        """更新词典列表显示"""
+        self.list_widget.clear()
+        word_dict = self.custom_dict[self.word_type]
+        for kanji, readings in sorted(word_dict.items()):
+            self.list_widget.addItem(f"{kanji} → {', '.join(readings)}")
+    
+    def split_readings(self, raw):
+        """分割假名字符串为列表"""
+        for sep in [",", "，", "、"]:
+            raw = raw.replace(sep, ",")
+        return [r.strip() for r in raw.split(",") if r.strip()]
+    
+    def add_entry(self):
+        """添加词条"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("添加词条")
+        dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setModal(True)
+        
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 创建主框架
+        main_frame = QFrame()
+        main_frame.setStyleSheet("""
+            QFrame {
+                background-color: #fafafa;
+                border: 0px solid;
+                border-radius: 8px;
+                padding: 16px;
+            }
+        """)
+        main_layout = QVBoxLayout(main_frame)
+        main_layout.setSpacing(12)
+        
+        # 词条输入
+        word_label = QLabel("词条:")
+        word_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #1f1f1f;
+                padding: 0px;
+                margin: 0px;
+                background: transparent;
+            }
+        """)
+        main_layout.addWidget(word_label)
+        
+        word_edit = QLineEdit()
+        word_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 8px;
+                background-color: white;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border-color: #73BBA3;
+            }
+        """)
+        main_layout.addWidget(word_edit)
+        
+        # 读音输入
+        reading_label = QLabel("读音:")
+        reading_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #1f1f1f;
+                padding: 0px;
+                margin: 0px;
+                background: transparent;
+            }
+        """)
+        main_layout.addWidget(reading_label)
+        
+        reading_edit = QLineEdit()
+        reading_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 8px;
+                background-color: white;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border-color: #73BBA3;
+            }
+        """)
+        main_layout.addWidget(reading_edit)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
+        
+        ok_button = QPushButton("确定")
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #73BBA3;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 60px;
+            }
+            QPushButton:hover {
+                background-color: #88D66C;
+            }
+            QPushButton:pressed {
+                background-color: #5A9D8C;
+            }
+        """)
+        
+        cancel_button = QPushButton("取消")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f5f5f5;
+                color: #666666;
+                border: 1px solid #d9d9d9;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 60px;
+            }
+            QPushButton:hover {
+                background-color: #fafafa;
+                border-color: #73BBA3;
+                color: #73BBA3;
+            }
+        """)
+        
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        button_layout.setAlignment(Qt.AlignCenter)
+        
+        main_layout.addLayout(button_layout)
+        layout.addWidget(main_frame)
+        
+        # 设置最小大小
+        dialog.setMinimumWidth(300)
+        
+        # 居中显示
+        dialog.move(self.frameGeometry().center() - dialog.rect().center())
+        
+        ok_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+        
+        if dialog.exec() == QDialog.Accepted:
+            word = word_edit.text().strip()
+            reading = reading_edit.text().strip()
+            
+            if not word or not reading:
+                CustomMessageBox(self, "警告", "词条和读音不能为空", style='warning').exec()
+                return
+            
+            if word in self.custom_dict:
+                CustomMessageBox(self, "警告", "该词条已存在", style='warning').exec()
+                return
+            
+            self.custom_dict[word] = self.split_readings(reading)
+            self.update_dict_view()
+            CustomMessageBox(self, "成功", "词条添加成功", style='success').exec()
+    
+    def edit_entry(self):
+        """编辑词条"""
+        selected_items = self.list_widget.selectedItems()
+        if not selected_items:
+            CustomMessageBox(self, "提示", "请先选择要编辑的词条", style='info').exec()
+            return
+        
+        item = selected_items[0]
+        word = item.text().split(" → ")[0]
+        
+        # 添加错误处理
+        if word not in self.custom_dict[self.word_type]:
+            CustomMessageBox(self, "错误", f"词条 '{word}' 不存在于词典中", style='error').exec()
+            return
+            
+        # 获取所有读音并用逗号连接
+        readings = self.custom_dict[self.word_type][word]
+        reading = ", ".join(readings)
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("编辑词条")
+        dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setModal(True)
+        
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 创建主框架
+        main_frame = QFrame()
+        main_frame.setStyleSheet("""
+            QFrame {
+                background-color: #fafafa;
+                border: 0px solid;
+                border-radius: 8px;
+                padding: 16px;
+            }
+        """)
+        main_layout = QVBoxLayout(main_frame)
+        main_layout.setSpacing(12)
+        
+        # 词条输入
+        word_label = QLabel("词条:")
+        word_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #1f1f1f;
+                padding: 0px;
+                margin: 0px;
+                background: transparent;
+            }
+        """)
+        main_layout.addWidget(word_label)
+        
+        word_edit = QLineEdit(word)
+        word_edit.setReadOnly(True)
+        word_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 8px;
+                background-color: #f5f5f5;
+                font-size: 13px;
+                color: #666666;
+            }
+        """)
+        main_layout.addWidget(word_edit)
+        
+        # 读音输入
+        reading_label = QLabel("读音:")
+        reading_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #1f1f1f;
+                padding: 0px;
+                margin: 0px;
+                background: transparent;
+            }
+        """)
+        main_layout.addWidget(reading_label)
+        
+        reading_edit = QLineEdit(reading)
+        reading_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 8px;
+                background-color: white;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border-color: #73BBA3;
+            }
+        """)
+        main_layout.addWidget(reading_edit)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
+        
+        ok_button = QPushButton("确定")
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #73BBA3;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 60px;
+            }
+            QPushButton:hover {
+                background-color: #88D66C;
+            }
+            QPushButton:pressed {
+                background-color: #5A9D8C;
+            }
+        """)
+        
+        cancel_button = QPushButton("取消")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f5f5f5;
+                color: #666666;
+                border: 1px solid #d9d9d9;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 60px;
+            }
+            QPushButton:hover {
+                background-color: #fafafa;
+                border-color: #73BBA3;
+                color: #73BBA3;
+            }
+        """)
+        
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        button_layout.setAlignment(Qt.AlignCenter)
+        
+        main_layout.addLayout(button_layout)
+        layout.addWidget(main_frame)
+        
+        # 设置最小大小
+        dialog.setMinimumWidth(300)
+        
+        # 居中显示
+        dialog.move(self.frameGeometry().center() - dialog.rect().center())
+        
+        ok_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+        
+        if dialog.exec() == QDialog.Accepted:
+            reading = reading_edit.text().strip()
+            
+            if not reading:
+                CustomMessageBox(self, "警告", "读音不能为空", style='warning').exec()
+                return
+            
+            self.custom_dict[self.word_type][word] = self.split_readings(reading)
+            self.update_dict_view()
+            CustomMessageBox(self, "成功", "词条修改成功", style='success').exec()
+    
+    def delete_selected(self):
+        """删除选中的词条"""
+        selected_items = self.list_widget.selectedItems()
+        if not selected_items:
+            CustomMessageBox(self, "提示", "请先选择要删除的词条", style='info').exec()
+            return
+        
+        dialog = CustomMessageBox(self, "确认删除", "确定要删除选中的词条吗？", style='question')
+        if dialog.exec() == QDialog.Accepted:
+            for item in selected_items:
+                word = item.text().split(" → ")[0]
+                del self.custom_dict[self.word_type][word]
+            self.update_dict_view()
+            CustomMessageBox(self, "成功", "词条删除成功", style='success').exec()
+    
+    def copy_all(self):
+        """复制所有词条"""
+        if not self.custom_dict:
+            CustomMessageBox(self, "提示", "词典为空", style='info').exec()
+            return
+        
+        text = "\n".join(f"{word} → {reading}" for word, reading in self.custom_dict[self.word_type].items())
+        QApplication.clipboard().setText(text)
+        CustomMessageBox(self, "成功", "已复制到剪贴板", style='success').exec()
+    
+    def on_selection_changed(self):
+        """当选中列表项时，如果启用了'选中即复制'，则复制选中项"""
+        if self.copy_on_select.isChecked():
+            selected_items = self.list_widget.selectedItems()
+            if selected_items:
+                QApplication.clipboard().setText(selected_items[0].text())
+                CustomMessageBox(self, "成功", "已复制选中词条", style='success').exec()
+
+class MainWindow(QMainWindow):
+    """主窗口"""
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("日文汉字-假名/罗马音 转换工具")
+        self.setMinimumSize(850, 700)
+        
+        # 设置窗口图标
+        icon_path = self.resource_path("icon.ico")
+        self.setWindowIcon(QIcon(icon_path))
+        
+        # 设置样式表
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: white;
+            }
+            
+            /* 菜单栏样式 */
+            QMenuBar {
+                background-color: white;
+                border-bottom: 1px solid #d9d9d9;
+            }
+            
+            QMenuBar::item {
+                padding: 6px 10px;
+                border-radius: 2px;
+                background: transparent;
+                margin: 1px;
+                font-size: 12px;
+                border: none;
+            }
+            
+            QMenuBar::item:selected {
+                background-color: #E8F5E9;
+                color: #73BBA3;
+                border: 1px solid #73BBA3;
+                border-radius: 2px;
+            }
+            
+            /* 下拉菜单样式 */
+            QMenu {
+                background-color: white;
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            
+            QMenu::item {
+                padding: 8px 16px;
+                border-radius: 2px;
+                background: transparent;
+                margin: 1px 2px;
+                font-size: 12px;
+                border: none;
+            }
+            
+            QMenu::item:selected {
+                background-color: #E8F5E9;
+                color: #73BBA3;
+                border: 1px solid #73BBA3;
+                border-radius: 2px;
+            }
+            
+            QMenu::separator {
+                height: 1px;
+                background-color: #d9d9d9;
+                margin: 4px 8px;
+            }
+        """)
+        
+        # 初始化变量
+        self.custom_dict = {
             "normal_words": {},
             "compound_words": {}
         }
-
-
-def save_custom_dict():
-    """保存自定义词典"""
-    global custom_dict, current_dict_path
-    dict_path = current_dict_path or get_dict_path()
-    os.makedirs(os.path.dirname(dict_path), exist_ok=True)
-    try:
-        with open(dict_path, "w", encoding="utf-8") as f:
-            json.dump(custom_dict, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"保存字典文件失败: {str(e)}")
-
-
-def set_window_icon(window):
-    """设置窗口图标"""
-    try:
-        window.iconbitmap(resource_path("icon.ico"))
-    except Exception:
-        pass
-
-
-def show_message(parent, title, message, style='info'):
-    """显示带图标的消息框"""
-    dialog = tb.Toplevel(parent)
-    dialog.title(title)
-    set_window_icon(dialog)
-
-    frame = tb.Frame(dialog, padding=10)
-    frame.pack(fill=BOTH, expand=True)
-
-    icon_mapping = {
-        'info': ('✓', 'success'),
-        'warning': ('⚠', 'warning'),
-        'error': ('✗', 'danger')
-    }
-    icon, color = icon_mapping.get(style, ('i', 'info'))
-
-    tb.Label(frame, text=icon, font=("Segoe UI", 24), bootstyle=color).pack(pady=10)
-    tb.Label(frame, text=message, font=("Segoe UI", 12)).pack(pady=5)
-
-    tb.Button(frame, text="确定", bootstyle=color, command=dialog.destroy).pack(pady=10)
-    dialog.transient(parent)
-    dialog.grab_set()
-
-    # 计算消息框位置
-    parent_x = parent.winfo_x()
-    parent_y = parent.winfo_y()
-    parent_width = parent.winfo_width()
-    parent_height = parent.winfo_height()
-    dialog_width = 340
-    dialog_height = 200
-    x = parent_x + (parent_width - dialog_width) // 2
-    y = parent_y + (parent_height - dialog_height) // 2
-    dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
-
-
-def load_dict():
-    """加载自定义词典文件"""
-    file_path = filedialog.askopenfilename(title="选择自定义词典文件", filetypes=[("JSON 文件", "*.json")])
-    if not file_path:
-        return
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            new_dict = json.load(f)
-        if isinstance(new_dict, dict):
-            global custom_dict, current_dict_path
-            # 合并字典
-            custom_dict["normal_words"] = {**custom_dict["normal_words"], **new_dict.get("normal_words", {})}
-            custom_dict["compound_words"] = {**custom_dict["compound_words"], **new_dict.get("compound_words", {})}
-            # 确保目标目录存在
-            os.makedirs(os.path.dirname(get_dict_path()), exist_ok=True)
-            with open(get_dict_path(), "w", encoding="utf-8") as f:
-                json.dump(custom_dict, f, ensure_ascii=False, indent=2)
-            show_message(root, "成功", "词典导入并合并成功")
+        self.current_dict_path = None
+        self.tagger = None
+        self.conv = None
+        
+        # 加载配置和字典
+        self.load_config()
+        self.load_custom_dict()
+        
+        # 创建主窗口部件
+        self.setup_ui()
+        
+        # 居中显示
+        self.center_on_screen()
+    
+    def center_on_screen(self):
+        """在屏幕中心显示"""
+        screen = QApplication.primaryScreen().geometry()
+        self.move(screen.center() - self.rect().center())
+    
+    def setup_ui(self):
+        """设置UI"""
+        # 创建中央部件
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # 创建主布局
+        layout = QVBoxLayout(central_widget)
+        layout.setSpacing(16)
+        layout.setContentsMargins(24, 24, 24, 24)
+        
+        # 创建菜单
+        self.create_menu()
+        
+        # 输入区域
+        input_label = QLabel("输入日文文本")
+        input_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        layout.addWidget(input_label)
+        
+        self.text_input = PlainTextEdit()
+        self.text_input.setMinimumHeight(200)
+        self.text_input.setPlaceholderText("请输入要转换的日文文本")
+        self.text_input.setStyleSheet("""
+            QTextEdit {
+                border: 2px solid #73BBA3;
+                border-radius: 4px;
+                padding: 16px;
+                background-color: white;
+                font-size: 14px;
+                margin-bottom: 16px;
+            }
+            QTextEdit:focus {
+                border-color: #88D66C;
+            }
+        """)
+        layout.addWidget(self.text_input)
+        
+        # 转换选项
+        options_label = QLabel("转换方式")
+        options_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        layout.addWidget(options_label)
+        
+        options_layout = QHBoxLayout()
+        options_layout.setSpacing(24)
+        
+        self.use_hira = CustomCheckBox("平假名")
+        self.use_hira.setChecked(True)
+        self.use_kata = CustomCheckBox("片假名")
+        self.use_kata.setChecked(True)
+        self.use_roma = CustomCheckBox("罗马音")
+        self.use_roma.setChecked(True)
+        
+        options_layout.addWidget(self.use_hira)
+        options_layout.addWidget(self.use_kata)
+        options_layout.addWidget(self.use_roma)
+        options_layout.addStretch()
+        
+        layout.addLayout(options_layout)
+        
+        # 转换按钮
+        convert_button = QPushButton("开始转换")
+        convert_button.setFixedWidth(140)
+        convert_button.setFixedHeight(44)
+        convert_button.clicked.connect(self.convert_text)
+        convert_button.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #73BBA3, stop:1 #5A9D8C);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-size: 15px;
+                font-weight: 500;
+                padding: 2px 0 2px 0;
+                margin: 8px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #88D66C, stop:1 #73BBA3);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5A9D8C, stop:1 #4A8D7C);
+            }
+        """)
+        layout.addWidget(convert_button, alignment=Qt.AlignCenter)
+        
+        # 输出区域
+        output_label = QLabel("转换结果")
+        output_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        layout.addWidget(output_label)
+        
+        self.text_output = QTextEdit()
+        self.text_output.setReadOnly(True)
+        self.text_output.setPlaceholderText("转换结果将显示在这里")
+        self.text_output.setMinimumHeight(200)
+        self.text_output.setStyleSheet("""
+            QTextEdit {
+                border: 2px solid #73BBA3;
+                border-radius: 4px;
+                padding: 16px;
+                background-color: white;
+                margin-bottom: 16px;
+                font-size: 14px;
+            }
+            QTextEdit:focus {
+                border-color: #88D66C;
+            }
+        """)
+        layout.addWidget(self.text_output)
+        
+        # 复制按钮
+        copy_button = QPushButton("复制结果")
+        copy_button.setFixedWidth(140)
+        copy_button.setFixedHeight(44)
+        copy_button.clicked.connect(self.copy_result)
+        copy_button.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #73BBA3, stop:1 #5A9D8C);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-size: 15px;
+                font-weight: 500;
+                padding: 2px 0 2px 0;
+                margin: 8px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #88D66C, stop:1 #73BBA3);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5A9D8C, stop:1 #4A8D7C);
+            }
+        """)
+        layout.addWidget(copy_button, alignment=Qt.AlignCenter)
+    
+    def create_menu(self):
+        """创建菜单"""
+        menubar = self.menuBar()
+        
+        # 文件菜单
+        file_menu = menubar.addMenu("文件")
+        import_action = QAction("导入词典", self)
+        import_action.triggered.connect(self.load_dict)
+        file_menu.addAction(import_action)
+        
+        edit_normal_action = QAction("编辑普通词词典", self)
+        edit_normal_action.triggered.connect(lambda: self.open_edit_dict_window("normal_words"))
+        file_menu.addAction(edit_normal_action)
+        
+        edit_compound_action = QAction("编辑复合词词典", self)
+        edit_compound_action.triggered.connect(lambda: self.open_edit_dict_window("compound_words"))
+        file_menu.addAction(edit_compound_action)
+        
+        file_menu.addSeparator()
+        
+        exit_action = QAction("退出", self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        
+        # 设置菜单
+        settings_menu = menubar.addMenu("设置")
+        dict_path_action = QAction("设置默认词库路径", self)
+        dict_path_action.triggered.connect(self.open_settings_window)
+        settings_menu.addAction(dict_path_action)
+        
+        # 帮助菜单
+        help_menu = menubar.addMenu("帮助")
+        about_action = QAction("关于", self)
+        about_action.triggered.connect(self.open_about_window)
+        help_menu.addAction(about_action)
+    
+    def load_config(self):
+        """加载配置文件"""
+        config_path = self.get_config_path()
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                    self.current_dict_path = config.get('dict_path')
+            except Exception as e:
+                print(f"加载配置文件失败: {str(e)}")
+    
+    def load_custom_dict(self):
+        """加载自定义词典"""
+        if self.current_dict_path and os.path.exists(self.current_dict_path):
+            custom_dict_path = self.current_dict_path
         else:
-            show_message(root, "警告", "所选文件格式无效，请选择一个有效的 JSON 文件", "warning")
-    except Exception as e:
-        show_message(root, "错误", f"导入词典时发生错误: {e}", "error")
+            custom_dict_path = self.get_dict_path()
 
+        if not os.path.exists(custom_dict_path):
+            try:
+                initial_dict_path = self.resource_path("custom_dict.json")
+                if os.path.exists(initial_dict_path):
+                    with open(initial_dict_path, "r", encoding="utf-8") as src:
+                        data = src.read()
+                    with open(custom_dict_path, "w", encoding="utf-8") as dst:
+                        dst.write(data)
+                else:
+                    with open(custom_dict_path, "w", encoding="utf-8") as f:
+                        json.dump({
+                            "normal_words": {},
+                            "compound_words": {}
+                        }, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                print(f"初始化字典文件失败: {str(e)}")
 
-def split_readings(raw):
-    """分割假名字符串为列表"""
-    for sep in [",", "，", "、"]:
-        raw = raw.replace(sep, ",")
-    return [r.strip() for r in raw.split(",") if r.strip()]
-
-
-def update_dict_view(listbox, word_type):
-    """更新词典列表显示"""
-    listbox.delete(0, tk.END)
-    word_dict = custom_dict[word_type]
-    for kanji, readings in sorted(word_dict.items()):
-        listbox.insert(tk.END, f"{kanji} → {', '.join(readings)}")
-
-
-def add_entry(kanji_entry, readings_entry, listbox, edit_window, word_type):
-    """添加新词条"""
-    kanji = kanji_entry.get().strip()
-    readings = split_readings(readings_entry.get().strip())
-    if kanji and readings:
         try:
-            custom_dict[word_type][kanji] = readings
-            save_custom_dict()
-            update_dict_view(listbox, word_type)
-            kanji_entry.delete(0, tk.END)
-            readings_entry.delete(0, tk.END)
-            show_message(edit_window, "成功", "词条已添加")
+            with open(custom_dict_path, "r", encoding="utf-8") as f:
+                self.custom_dict = json.load(f)
+            self.current_dict_path = custom_dict_path
         except Exception as e:
-            show_message(edit_window, "错误", f"保存词条时出错: {str(e)}", "error")
-            print(f"保存词条时出错: {str(e)}")
-    else:
-        show_message(edit_window, "警告", "请输入有效的汉字和假名", "warning")
-
-
-def delete_selected(listbox, edit_window, word_type):
-    """删除选中的词条"""
-    selected_items = listbox.curselection()
-    if not selected_items:
-        show_message(edit_window, "警告", "请选择要删除的条目", "warning")
-        return
-
-    confirm_dialog = tb.Toplevel(edit_window)
-    confirm_dialog.title("确认删除")
-    set_window_icon(confirm_dialog)
-
-    # 调整确认退出窗口大小
-    dialog_width = 300
-    dialog_height = 200
-
-    frame = tb.Frame(confirm_dialog, padding=10)
-    frame.pack(fill=BOTH, expand=True)
-
-    tb.Label(frame, text="⚠", font=("Segoe UI", 24), bootstyle="warning").pack(pady=10)
-    tb.Label(frame, text=f"确定要删除这 {len(selected_items)} 个条目吗？", font=("Segoe UI", 12)).pack(pady=5)
-
-    button_frame = tb.Frame(frame)
-    button_frame.pack(pady=10)
-
-    def do_delete():
+            print(f"加载字典文件失败: {str(e)}")
+            self.custom_dict = {
+                "normal_words": {},
+                "compound_words": {}
+            }
+    
+    def save_custom_dict(self):
+        """保存自定义词典"""
+        dict_path = self.current_dict_path or self.get_dict_path()
+        os.makedirs(os.path.dirname(dict_path), exist_ok=True)
         try:
-            word_dict = custom_dict[word_type]
-            for item in reversed(selected_items):
-                selected_kanji = listbox.get(item).split(" → ")[0]
-                del word_dict[selected_kanji]
-
-            save_custom_dict()
-            update_dict_view(listbox, word_type)
-            confirm_dialog.destroy()
-            show_message(edit_window, "成功", f"已删除 {len(selected_items)} 个条目")
+            with open(dict_path, "w", encoding="utf-8") as f:
+                json.dump(self.custom_dict, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            show_message(edit_window, "错误", f"删除词条时出错: {str(e)}", "error")
-
-    tb.Button(button_frame, text="确定", bootstyle="danger", command=do_delete).pack(side=LEFT, padx=10)
-    tb.Button(button_frame, text="取消", bootstyle="secondary", command=confirm_dialog.destroy).pack(side=RIGHT,
-                                                                                                     padx=10)
-
-    # 计算确认对话框位置
-    parent_x = edit_window.winfo_x()
-    parent_y = edit_window.winfo_y()
-    parent_width = edit_window.winfo_width()
-    parent_height = edit_window.winfo_height()
-    x = parent_x + (parent_width - dialog_width) // 2
-    y = parent_y + (parent_height - dialog_height) // 2
-    confirm_dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
-
-
-def edit_entry(listbox, edit_window, word_type):
-    """编辑选中的词条"""
-    selected_item = listbox.curselection()
-    if selected_item:
-        word_dict = custom_dict[word_type]
-        selected_kanji = listbox.get(selected_item[0]).split(" → ")[0]
-        readings = word_dict[selected_kanji]
-
-        edit_dialog = tb.Toplevel(edit_window)
-        edit_dialog.title("编辑词条")
-        set_window_icon(edit_dialog)
-
-        main_frame = tb.Frame(edit_dialog, padding=10)
-        main_frame.pack(fill=BOTH, expand=True)
-
-        input_frame = tb.LabelFrame(main_frame, text="编辑词条内容", padding=10)
-        input_frame.pack(fill=BOTH, expand=True, pady=5)
-
-        tb.Label(input_frame, text="汉字", bootstyle="inverse-light").pack(anchor="w")
-        kanji_edit = tb.Entry(input_frame, font=("Segoe UI", 12))
-        kanji_edit.insert(0, selected_kanji)
-        kanji_edit.pack(fill=X, pady=5)
-
-        tb.Label(input_frame, text="对应假名 (用逗号间隔)", bootstyle="inverse-light").pack(anchor="w")
-        readings_edit = tb.Entry(input_frame, font=("Segoe UI", 12))
-        readings_edit.insert(0, ", ".join(readings))
-        readings_edit.pack(fill=X, pady=5)
-
-        button_frame = tb.Frame(main_frame)
-        button_frame.pack(fill=X, pady=10)
-
-        def save_edit():
-            """保存编辑结果"""
-            new_kanji = kanji_edit.get().strip()
-            new_readings = split_readings(readings_edit.get().strip())
-
-            if new_kanji and new_readings:
-                try:
-                    if new_kanji != selected_kanji:
-                        del word_dict[selected_kanji]
-                    word_dict[new_kanji] = new_readings
-
-                    save_custom_dict()
-                    update_dict_view(listbox, word_type)
-                    edit_dialog.destroy()
-                    show_message(edit_window, "成功", "词条已更新")
-                except Exception as e:
-                    show_message(edit_dialog, "错误", f"保存修改时出错: {str(e)}", "error")
-            else:
-                show_message(edit_dialog, "警告", "请输入有效的汉字和假名", "warning")
-
-        tb.Button(button_frame, text="保存", bootstyle="success", command=save_edit).pack(side=LEFT, padx=5)
-        tb.Button(button_frame, text="取消", bootstyle="secondary", command=edit_dialog.destroy).pack(side=RIGHT,
-                                                                                                      padx=5)
-
-        # 计算编辑对话框位置
-        parent_x = edit_window.winfo_x()
-        parent_y = edit_window.winfo_y()
-        parent_width = edit_window.winfo_width()
-        parent_height = edit_window.winfo_height()
-        dialog_width = 600
-        dialog_height = 300
-        x = parent_x + (parent_width - dialog_width) // 2
-        y = parent_y + (parent_height - dialog_height) // 2
-        edit_dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
-    else:
-        show_message(edit_window, "警告", "请选择要编辑的条目", "warning")
-
-
-def copy_selected(listbox, edit_window):
-    """复制选中的词条"""
-    selected_item = listbox.curselection()
-    if selected_item:
-        item = listbox.get(selected_item[0])
-        edit_window.clipboard_clear()
-        edit_window.clipboard_append(item)
-        show_message(edit_window, "成功", "已复制选中词条")
-
-
-def copy_all(listbox, edit_window):
-    """复制所有词条"""
-    all_text = "\n".join([listbox.get(i) for i in range(listbox.size())])
-    edit_window.clipboard_clear()
-    edit_window.clipboard_append(all_text)
-    show_message(edit_window, "成功", "已复制所有词条")
-
-
-def setup_context_menu(listbox, edit_window):
-    """设置右键上下文菜单"""
-    context_menu = Menu(edit_window, tearoff=0)
-    context_menu.add_command(label="复制", command=lambda: copy_selected(listbox, edit_window))
-    context_menu.add_command(label="编辑", command=lambda: edit_entry(listbox, edit_window))
-    context_menu.add_command(label="删除", command=lambda: delete_selected(listbox, edit_window))
-
-    def show_context_menu(event):
+            print(f"保存字典文件失败: {str(e)}")
+    
+    def get_appdata_path(self):
+        """获取应用程序数据目录路径"""
+        appdata = os.getenv('APPDATA')
+        app_dir = os.path.join(appdata, 'Hantokana')
+        os.makedirs(app_dir, exist_ok=True)
+        return app_dir
+    
+    def get_dict_path(self):
+        """获取字典文件永久存储路径"""
+        return os.path.join(self.get_appdata_path(), 'custom_dict.json')
+    
+    def get_config_path(self):
+        """获取配置文件路径"""
+        return os.path.join(self.get_appdata_path(), 'config.json')
+    
+    def resource_path(self, relative_path):
+        """获取资源的绝对路径"""
         try:
-            context_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            context_menu.grab_release()
-
-    listbox.bind("<Button-3>", show_context_menu)
-
-
-def open_edit_dict_window(word_type):
-    """打开词典编辑窗口"""
-    edit_window = tb.Toplevel(root)
-    edit_window.title(f"编辑{'复合词' if word_type == 'compound_words' else '普通词'}词典")
-    set_window_icon(edit_window)
-
-    dict_frame = tb.Frame(edit_window, padding=10)
-    dict_frame.pack(fill=BOTH, expand=True)
-
-    # 显示当前词典文件路径的标签
-    path_label = tb.Label(dict_frame, text=f"当前词典文件路径: {current_dict_path}", bootstyle="inverse-light")
-    path_label.pack(anchor="w", pady=5)
-
-    # 输入区域
-    input_frame = tb.LabelFrame(dict_frame, text=f"添加新{'复合词' if word_type == 'compound_words' else '普通词'}词条",
-                                padding=10)
-    input_frame.pack(fill=X, pady=5)
-
-    tb.Label(input_frame, text=f"{'复合词' if word_type == 'compound_words' else '汉字'}",
-             bootstyle="inverse-light").pack(anchor="w")
-    kanji_entry = tb.Entry(input_frame, font=("Segoe UI", 12))
-    kanji_entry.pack(fill=X, pady=5)
-
-    tb.Label(input_frame, text="对应假名 (用逗号间隔)", bootstyle="inverse-light").pack(anchor="w")
-    readings_entry = tb.Entry(input_frame, font=("Segoe UI", 12))
-    readings_entry.pack(fill=X, pady=5)
-
-    # 按钮区域
-    button_frame = tb.Frame(dict_frame)
-    button_frame.pack(fill=X, pady=5)
-
-    tb.Button(button_frame, text="添加词条", bootstyle="success",
-              command=lambda: add_entry(kanji_entry, readings_entry, listbox, edit_window, word_type)).pack(side=LEFT,
-                                                                                                            padx=5)
-    tb.Button(button_frame, text="编辑词条", bootstyle="info",
-              command=lambda: edit_entry(listbox, edit_window, word_type)).pack(side=LEFT, padx=5)
-    tb.Button(button_frame, text="删除选中", bootstyle="danger",
-              command=lambda: delete_selected(listbox, edit_window, word_type)).pack(side=LEFT, padx=5)
-    tb.Button(button_frame, text="复制全部", bootstyle="secondary",
-              command=lambda: copy_all(listbox, edit_window)).pack(side=RIGHT, padx=5)
-
-    # 词典列表区域
-    list_frame = tb.LabelFrame(dict_frame, text="词典内容", padding=10)
-    list_frame.pack(fill=BOTH, expand=True, pady=5)
-
-    listbox = tk.Listbox(list_frame, font=("Segoe UI", 12), selectmode=tk.EXTENDED)
-    listbox.pack(fill=BOTH, expand=True)
-
-    scrollbar = tb.Scrollbar(listbox, bootstyle="round")
-    scrollbar.pack(side=RIGHT, fill=Y)
-    listbox.config(yscrollcommand=scrollbar.set)
-    scrollbar.config(command=listbox.yview)
-
-    # 选中即复制选项
-    copy_var = tk.BooleanVar()
-    tb.Checkbutton(dict_frame, text="选中即复制", variable=copy_var, bootstyle="info-round-toggle").pack(pady=3)
-
-    def on_listbox_select(event):
-        """当选中列表项时，如果启用了'选中即复制'，则复制选中项"""
-        if copy_var.get():
-            copy_selected(listbox, edit_window)
-
-    # 绑定选中事件
-    listbox.bind("<<ListboxSelect>>", on_listbox_select)
-
-    # 设置右键菜单
-    setup_context_menu(listbox, edit_window)
-    # 初始更新词典视图
-    update_dict_view(listbox, word_type)
-
-    # 计算编辑词典窗口位置
-    root_x = root.winfo_x()
-    root_y = root.winfo_y()
-    root_width = root.winfo_width()
-    root_height = root.winfo_height()
-    window_width = 800
-    window_height = 600
-    x = root_x + (root_width - window_width) // 2
-    y = root_y + (root_height - window_height) // 2
-    edit_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
-
-
-def select_path(path_entry):
-    """选择词库路径"""
-    file_path = filedialog.askopenfilename(title="选择默认词典文件", filetypes=[("JSON 文件", "*.json")])
-    if file_path:
-        path_entry.delete(0, tk.END)
-        path_entry.insert(0, file_path)
-
-
-def save_settings(path_entry, settings_window):
-    """保存设置"""
-    global current_dict_path
-    new_path = path_entry.get().strip()
-    if new_path and os.path.exists(new_path):
+            # PyInstaller创建临时文件夹,将路径存储在_MEIPASS中
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.abspath(".")
+        return os.path.join(base_path, relative_path)
+    
+    def init_tagger(self):
+        """初始化分词器"""
         try:
-            with open(new_path, "r", encoding="utf-8") as f:
-                global custom_dict
-                custom_dict = json.load(f)
-            current_dict_path = new_path
-            # 保存配置
-            config = {'dict_path': current_dict_path}
-            with open(get_config_path(), "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-            show_message(settings_window, "成功", "默认词库路径已更新")
-            settings_window.destroy()
+            return Tagger('-r "' + self.resource_path('dicdir/mecabrc') + '" -d "' + self.resource_path('dicdir') + '"')
+        except Exception:
+            return Tagger()
+    
+    def init_kks(self):
+        """初始化假名转换器"""
+        kks = pykakasi.kakasi()
+        kks.setMode("J", "a")
+        kks.setMode("K", "a")
+        kks.setMode("H", "a")
+        kks.setMode("r", "Hepburn")
+        return kks.getConverter()
+    
+    def convert_text(self):
+        """执行日语文本转换"""
+        if self.conv is None:
+            self.conv = self.init_kks()
+        if self.tagger is None:
+            self.tagger = self.init_tagger()
+
+        raw = self.text_input.toPlainText().strip()
+        if not raw:
+            self.text_output.setPlainText("请输入日文文本。")
+            return
+        if not (self.use_hira.isChecked() or self.use_kata.isChecked() or self.use_roma.isChecked()):
+            CustomMessageBox(self, "警告", "请选择至少一个转换方式", style='warning').exec()
+            return
+
+        result = ""
+        try:
+            # 先进行正常分词
+            words = self.tagger(raw)
+            
+            # 使用集合来跟踪已处理的词，避免重复
+            processed_words = set()
+            
+            i = 0
+            while i < len(words):
+                # 尝试合并复合词
+                for j in range(len(words), i, -1):
+                    combined = ''.join([w.surface for w in words[i:j]])
+                    if combined in self.custom_dict["compound_words"]:
+                        word = combined
+                        i = j
+                        break
+                else:
+                    word = words[i].surface
+                    i += 1
+
+                # 如果这个词已经处理过，跳过
+                if word in processed_words:
+                    continue
+                
+                processed_words.add(word)
+
+                # 对于纯中文文本或标点符号，直接跳过转换
+                if (all(ord(char) > 127 for char in word) and 
+                    not any(ord(char) in range(0x3040, 0x30FF) for char in word) and
+                    not any(ord(char) in range(0x4E00, 0x9FFF) for char in word)):
+                    # 这是纯中文文本或标点符号，不进行转换
+                    continue
+
+                # 检查是否包含日文字符（平假名、片假名、汉字）
+                has_japanese = any(
+                    ord(char) in range(0x3040, 0x309F) or  # 平假名
+                    ord(char) in range(0x30A0, 0x30FF) or  # 片假名
+                    ord(char) in range(0x4E00, 0x9FFF)     # 汉字
+                    for char in word
+                )
+                
+                # 如果不包含日文字符，跳过转换
+                if not has_japanese:
+                    continue
+
+                # 优先使用自定义词典
+                readings = self.custom_dict["normal_words"].get(word) or self.custom_dict["compound_words"].get(word)
+                if not readings:
+                    # 使用pykakasi转换
+                    converted = self.conv.convert(word)
+                    readings = [item['hira'] for item in converted]
+
+                # 处理所有读音
+                if readings:
+                    line = f"[{word}]"
+                    if self.use_hira.isChecked():
+                        # 如果有多个读音，用逗号分隔
+                        hira_readings = [jaconv.kata2hira(reading) for reading in readings]
+                        line += f" → [{', '.join(hira_readings)}]"
+                    if self.use_kata.isChecked():
+                        kata_readings = [jaconv.hira2kata(jaconv.kata2hira(reading)) for reading in readings]
+                        line += f" → [{', '.join(kata_readings)}]"
+                    if self.use_roma.isChecked():
+                        roma_readings = []
+                        for reading in readings:
+                            roma_item = self.conv.convert(reading)[0]
+                            roma_readings.append(roma_item['hepburn'])
+                        line += f" → [{', '.join(roma_readings)}]"
+                    result += line + "\n"
+            
+            self.text_output.setPlainText(result.strip())
         except Exception as e:
-            show_message(settings_window, "错误", f"加载新词典时发生错误: {e}", "error")
-    else:
-        show_message(settings_window, "警告", "请输入有效的 JSON 文件路径", "warning")
+            CustomMessageBox(self, "错误", str(e), style='error').exec()
+    
+    def copy_result(self):
+        """复制转换结果"""
+        QApplication.clipboard().setText(self.text_output.toPlainText())
+        CustomMessageBox(self, "成功", "已复制到剪贴板", style='success').exec()
+    
+    def load_dict(self):
+        """加载自定义词典文件"""
+        # 创建文件对话框并设置图标
+        file_dialog = QFileDialog(self)
+        file_dialog.setWindowTitle("选择自定义词典文件")
+        file_dialog.setNameFilter("JSON 文件 (*.json)")
+        
+        # 设置窗口图标
+        try:
+            icon_path = self.resource_path("icon.ico")
+            file_dialog.setWindowIcon(QIcon(icon_path))
+        except Exception:
+            # 如果设置图标失败，忽略错误继续执行
+            pass
+        
+        if file_dialog.exec() == QFileDialog.Accepted:
+            file_path = file_dialog.selectedFiles()[0]
+            if not file_path:
+                return
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    new_dict = json.load(f)
+                if isinstance(new_dict, dict):
+                    # 合并字典
+                    self.custom_dict["normal_words"] = {**self.custom_dict["normal_words"], **new_dict.get("normal_words", {})}
+                    self.custom_dict["compound_words"] = {**self.custom_dict["compound_words"], **new_dict.get("compound_words", {})}
+                    # 确保目标目录存在
+                    os.makedirs(os.path.dirname(self.get_dict_path()), exist_ok=True)
+                    with open(self.get_dict_path(), "w", encoding="utf-8") as f:
+                        json.dump(self.custom_dict, f, ensure_ascii=False, indent=2)
+                    CustomMessageBox(self, "成功", "词典导入并合并成功", style='success').exec()
+                else:
+                    CustomMessageBox(self, "警告", "所选文件格式无效，请选择一个有效的 JSON 文件", style='warning').exec()
+            except Exception as e:
+                CustomMessageBox(self, "错误", f"导入词典时发生错误: {e}", style='error').exec()
+    
+    def open_edit_dict_window(self, word_type):
+        """打开词典编辑窗口"""
+        dialog = DictEditDialog(self, word_type, self.custom_dict)
+        # 设置窗口图标
+        icon_path = self.resource_path("icon.ico")
+        dialog.setWindowIcon(QIcon(icon_path))
+        if dialog.exec() == QDialog.Accepted:
+            # 更新主窗口的词典数据
+            self.custom_dict = dialog.custom_dict
+            # 保存到文件
+            self.save_custom_dict()
+    
+    def open_settings_window(self):
+        """打开设置窗口"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("设置")
+        dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setModal(True)
+        
+        # 设置窗口图标
+        try:
+            icon_path = self.resource_path("icon.ico")
+            dialog.setWindowIcon(QIcon(icon_path))
+        except Exception:
+            pass
 
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(16)
+        layout.setContentsMargins(24, 24, 24, 24)
+        
+        # 路径输入框
+        path_frame = QFrame()
+        path_frame.setStyleSheet("""
+            QFrame {
+                background-color: #fafafa;
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 8px;
+            }
+            QLabel {
+                background: transparent;
+            }
+        """)
+        path_layout = QHBoxLayout(path_frame)
+        path_layout.setContentsMargins(8, 8, 8, 8)
+        path_layout.setSpacing(8)
+        
+        path_edit = QLineEdit()
+        path_edit.setText(self.current_dict_path or "")
+        path_edit.setPlaceholderText("请选择或输入词典文件路径")
+        path_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 8px;
+                background-color: white;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border-color: #40a9ff;
+            }
+        """)
+        path_layout.addWidget(path_edit)
+        
+        select_button = QPushButton("选择文件")
+        select_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f5f5f5;
+                color: #1f1f1f;
+                border: 1px solid #d9d9d9;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #fafafa;
+                border-color: #40a9ff;
+                color: #40a9ff;
+            }
+            QPushButton:pressed {
+                background-color: #f0f0f0;
+            }
+        """)
+        select_button.clicked.connect(lambda: self.select_path(path_edit))
+        path_layout.addWidget(select_button)
+        
+        layout.addWidget(path_frame)
+        
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(12)
+        
+        save_button = QPushButton("保存设置")
+        save_button.setStyleSheet("""
+            QPushButton {
+                background-color: #73BBA3;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #88D66C;
+            }
+            QPushButton:pressed {
+                background-color: #88D66C;
+            }
+        """)
+        save_button.clicked.connect(lambda: self.save_settings(path_edit, dialog))
+        
+        cancel_button = QPushButton("取消")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #F49BAB;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #FFAAAA;
+            }
+            QPushButton:pressed {
+                background-color: #FF9898;
+            }
+        """)
+        cancel_button.clicked.connect(dialog.reject)
+        
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        # 设置最小大小
+        dialog.setMinimumSize(500, 150)
+        
+        # 居中显示
+        dialog.move(self.frameGeometry().center() - dialog.rect().center())
+        dialog.exec()
+    
+    def select_path(self, path_edit):
+        """选择词库路径"""
+        parent_dialog = path_edit.window()  # 获取设置窗口作为父窗口
+        
+        # 创建文件对话框并设置图标
+        file_dialog = QFileDialog(parent_dialog)
+        file_dialog.setWindowTitle("选择默认词典文件")
+        file_dialog.setNameFilter("JSON 文件 (*.json)")
+        
+        # 设置窗口图标
+        try:
+            icon_path = self.resource_path("icon.ico")
+            file_dialog.setWindowIcon(QIcon(icon_path))
+        except Exception:
+            # 如果设置图标失败，忽略错误继续执行
+            pass
+        
+        if file_dialog.exec() == QFileDialog.Accepted:
+            file_path = file_dialog.selectedFiles()[0]
+            if file_path:
+                path_edit.setText(file_path)
+    
+    def save_settings(self, path_edit, settings_window):
+        """保存设置"""
+        new_path = path_edit.text().strip()
+        if new_path and os.path.exists(new_path):
+            try:
+                with open(new_path, "r", encoding="utf-8") as f:
+                    self.custom_dict = json.load(f)
+                self.current_dict_path = new_path
+                # 保存配置
+                config = {'dict_path': self.current_dict_path}
+                with open(self.get_config_path(), "w", encoding="utf-8") as f:
+                    json.dump(config, f, ensure_ascii=False, indent=2)
+                CustomMessageBox(settings_window, "成功", "默认词库路径已更新", style='success').exec()
+                settings_window.accept()
+            except Exception as e:
+                CustomMessageBox(settings_window, "错误", f"加载新词典时发生错误: {e}", style='error').exec()
+        else:
+            CustomMessageBox(settings_window, "警告", "请输入有效的 JSON 文件路径", style='warning').exec()
+    
+    def open_about_window(self):
+        """打开关于页面"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("关于")
+        dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setModal(True)
+        
+        # 设置窗口图标
+        icon_path = self.resource_path("icon.ico")
+        dialog.setWindowIcon(QIcon(icon_path))
+        
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(8)  # 减小间距
+        layout.setContentsMargins(16, 16, 16, 16)  # 减小边距
+        
+        # 创建主框架
+        main_frame = QFrame()
+        main_frame.setStyleSheet("""
+            QFrame {
+                background-color: #fafafa;
+                border: 0px solid;
+                border-radius: 8px;
+                padding: 12px;
+            }
+        """)
+        main_layout = QVBoxLayout(main_frame)
+        main_layout.setSpacing(8)  # 减小间距
+        
+        # 标题
+        title_label = QLabel("日文汉字 - 假名/罗马音转换工具")
+        title_label.setStyleSheet("""
+            font-size: 16px;
+            font-weight: bold;
+            color: #1f1f1f;
+            margin-bottom: 2px;
+        """)
+        title_label.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(title_label)
+        
+        # 描述
+        desc_label = QLabel("这是一款用于将日文汉字转换为假名和罗马音的工具。")
+        desc_label.setStyleSheet("""
+            font-size: 14px;
+            color: #1f1f1f;
+        """)
+        desc_label.setAlignment(Qt.AlignCenter)
+        desc_label.setWordWrap(True)
+        main_layout.addWidget(desc_label)
+        
+        feature_label = QLabel("支持自定义词典，可以添加和编辑常用词汇。")
+        feature_label.setStyleSheet("""
+            font-size: 14px;
+            color: #1f1f1f;
+        """)
+        feature_label.setAlignment(Qt.AlignCenter)
+        feature_label.setWordWrap(True)
+        main_layout.addWidget(feature_label)
+        
+        # 图片
+        try:
+            image_path = self.resource_path("hantokana.png")
+            if os.path.exists(image_path):
+                pixmap = QPixmap(image_path)
+                image_label = QLabel()
+                image_label.setPixmap(pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))  # 减小图片尺寸
+                image_label.setAlignment(Qt.AlignCenter)
+                image_label.setStyleSheet("""
+                    QLabel {
+                        background-color: transparent;
+                        border: 0px solid #d9d9d9;
+                        border-radius: 4px;
+                        padding: 2px;
+                    }
+                """)
+                main_layout.addWidget(image_label)
+        except Exception as e:
+            print(f"加载图片失败: {str(e)}")
+        
+        # 版本信息
+        version_label = QLabel("版本: 0.3")
+        version_label.setStyleSheet("""
+            font-size: 14px;
+            color: #1f1f1f;
+        """)
+        version_label.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(version_label)
+        
+        github_label = QLabel("https://github.com/kanocyann/hantokana")
+        github_label.setStyleSheet("""
+            font-size: 14px;
+            color: #73BBA3;
+        """)
+        github_label.setAlignment(Qt.AlignCenter)
+        github_label.setCursor(Qt.PointingHandCursor)
+        github_label.mousePressEvent = lambda e: QDesktopServices.openUrl(QUrl("https://github.com/kanocyann/hantokana"))
+        main_layout.addWidget(github_label)
+        
+        layout.addWidget(main_frame)
+        
+        # 确定按钮
+        ok_button = QPushButton("确定")
+        ok_button.setFixedWidth(100)  # 减小按钮宽度
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #73BBA3;
+                color: white;
+                border: none;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 14px;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #88D66C;
+            }
+            QPushButton:pressed {
+                background-color: #88D66C;
+            }
+        """)
+        ok_button.clicked.connect(dialog.accept)
+        layout.addWidget(ok_button, alignment=Qt.AlignCenter)
+        
+        # 设置最小大小
+        dialog.setMinimumSize(450, 400)  # 增加宽度，减小高度
+        
+        # 居中显示
+        dialog.move(self.frameGeometry().center() - dialog.rect().center())
+        dialog.exec()
+    
+    def closeEvent(self, event):
+        """关闭窗口事件"""
+        dialog = CustomMessageBox(self, "确认退出", "确定要退出应用程序吗？", style='question')
+        if dialog.exec() == QDialog.Accepted:
+            event.accept()
+        else:
+            event.ignore()
 
-def open_settings_window():
-    """打开设置窗口"""
-    settings_window = tb.Toplevel(root)
-    settings_window.title("设置")
-    set_window_icon(settings_window)
-
-    settings_frame = tb.Frame(settings_window, padding=10)
-    settings_frame.pack(fill=BOTH, expand=True)
-
-    tb.Label(settings_frame, text="默认词库路径", bootstyle="inverse-light").pack(anchor="w")
-    path_entry = tb.Entry(settings_frame, font=("Segoe UI", 12))
-    path_entry.insert(0, current_dict_path)
-    path_entry.pack(fill=X, pady=5)
-
-    button_frame = tb.Frame(settings_frame)
-    button_frame.pack(fill=X, pady=10)
-
-    tb.Button(button_frame, text="选择文件", bootstyle="secondary",
-              command=lambda: select_path(path_entry)).pack(side=LEFT, padx=5)
-    tb.Button(button_frame, text="保存设置", bootstyle="success",
-              command=lambda: save_settings(path_entry, settings_window)).pack(side=RIGHT, padx=5)
-
-    # 计算设置窗口位置
-    root_x = root.winfo_x()
-    root_y = root.winfo_y()
-    root_width = root.winfo_width()
-    root_height = root.winfo_height()
-    window_width = 500
-    window_height = 150
-    x = root_x + (root_width - window_width) // 2
-    y = root_y + (root_height - window_height) // 2
-    settings_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
-
-
-def open_about_window():
-    """打开关于页面"""
-    about_window = tb.Toplevel(root)
-    about_window.title("关于")
-    set_window_icon(about_window)
-
-    about_frame = tb.Frame(about_window, padding=10)
-    about_frame.pack(fill=BOTH, expand=True)
-
-    tb.Label(about_frame, text="日文汉字 - 假名/罗马音转换工具", font=("Segoe UI", 16, "bold")).pack(pady=10)
-    tb.Label(about_frame, text="这是一款用于将日文汉字转换为假名和罗马音的工具。", font=("Segoe UI", 12)).pack(pady=5)
-    tb.Label(about_frame, text="支持自定义词典。", font=("Segoe UI", 12)).pack(pady=5)
-
-    # 加载图片
-    try:
-        image = Image.open(resource_path("hantokana.png"))  # 替换为实际图片路径
-        photo = ImageTk.PhotoImage(image)
-        image_label = tk.Label(about_frame, image=photo)
-        image_label.image = photo
-        image_label.pack(pady=10)
-    except Exception as e:
-        print(f"加载图片失败: {str(e)}")
-
-    tb.Label(about_frame, text="版本: 0.2", font=("Segoe UI", 12)).pack(pady=5)
-    tb.Label(about_frame, text="https://github.com/kanocyann/hantokana", font=("Segoe UI", 12)).pack(pady=5)
-
-    # 计算关于窗口位置
-    root_x = root.winfo_x()
-    root_y = root.winfo_y()
-    root_width = root.winfo_width()
-    root_height = root.winfo_height()
-    about_frame.update_idletasks()
-    window_width = about_frame.winfo_reqwidth() + 20
-    window_height = about_frame.winfo_reqheight() + 20
-    x = root_x + (root_width - window_width) // 2
-    y = root_y + (root_height - window_height) // 2
-    about_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
-
-
-def get_kana(surface):
-    """用 pyKakasi 将词转换为平假名"""
-    kana = ""
-    for token in conv.convert(surface):
-        kana += token['hira']
-    return kana
-
-
-def convert_text(text_input, text_output_text, use_hira, use_kata, use_roma):
-    """执行日语文本转换：显示平假名、片假名和罗马音"""
-    global tagger, conv
-    if conv is None:
-        conv = init_kks()
-    if tagger is None:
-        tagger = init_tagger()
-
-    raw = text_input.get("1.0", tk.END).strip()
-    if not raw:
-        update_output(text_output_text, "请输入日文文本。")
-        return
-    if not (use_hira.get() or use_kata.get() or use_roma.get()):
-        show_message(root, "警告", "请选择至少一个转换方式", "warning")
-        return
-
-    result = ""
-    try:
-        # 先进行正常分词
-        words = tagger(raw)
-        i = 0
-        while i < len(words):
-            # 尝试合并复合词
-            for j in range(len(words), i, -1):
-                combined = ''.join([w.surface for w in words[i:j]])
-                if combined in custom_dict["compound_words"]:
-                    word = combined
-                    i = j
-                    break
-            else:
-                word = words[i].surface
-                i += 1
-
-            # 优先使用自定义词典
-            readings = custom_dict["normal_words"].get(word) or custom_dict["compound_words"].get(word)
-            if not readings:
-                # 使用pykakasi转换
-                converted = conv.convert(word)
-                readings = [item['hira'] for item in converted]
-
-            for reading in readings:
-                hira = jaconv.kata2hira(reading)
-                line = f"[{word}]"
-                if use_hira.get():
-                    line += f" → [{hira}]"
-                if use_kata.get():
-                    kata = jaconv.hira2kata(hira)
-                    line += f" → [{kata}]"
-                if use_roma.get():
-                    roma_item = conv.convert(reading)[0]
-                    roma = roma_item['hepburn']
-                    line += f" → [{roma}]"
-                result += line + "\n"
-        update_output(text_output_text, result.strip())
-    except Exception as e:
-        show_message(root, "错误", str(e), "error")
-
-
-def update_output(text_output_text, text):
-    """更新输出区域"""
-    text_output_text.text.configure(state="normal")
-    text_output_text.text.delete("1.0", tk.END)
-    text_output_text.text.insert(tk.END, text)
-    text_output_text.text.configure(state="disabled")
-
-
-def copy_result(text_output_text, root):
-    """复制转换结果"""
-    root.clipboard_clear()
-    root.clipboard_append(text_output_text.text.get("1.0", tk.END).strip())
-    show_message(root, "成功", "已复制到剪贴板")
-
-
-def confirm_exit():
-    """退出确认提示"""
-    confirm_dialog = tb.Toplevel(root)
-    confirm_dialog.title("确认退出")
-    set_window_icon(confirm_dialog)
-
-    frame = tb.Frame(confirm_dialog, padding=10)
-    frame.pack(fill=BOTH, expand=True)
-
-    tb.Label(frame, text="⚠", font=("Segoe UI", 24), bootstyle="warning").pack(pady=10)
-    tb.Label(frame, text="确定要退出应用程序吗？", font=("Segoe UI", 12)).pack(pady=5)
-
-    button_frame = tb.Frame(frame)
-    button_frame.pack(pady=10)
-
-    def do_exit():
-        confirm_dialog.destroy()
-        root.destroy()
-
-    tb.Button(button_frame, text="确定", bootstyle="danger", command=do_exit).pack(side=LEFT, padx=10)
-    tb.Button(button_frame, text="取消", bootstyle="secondary", command=confirm_dialog.destroy).pack(side=RIGHT,
-                                                                                                     padx=10)
-
-    # 计算确认退出窗口位置
-    root_x = root.winfo_x()
-    root_y = root.winfo_y()
-    root_width = root.winfo_width()
-    root_height = root.winfo_height()
-    dialog_width = 340
-    dialog_height = 200
-    x = root_x + (root_width - dialog_width) // 2
-    y = root_y + (root_height - dialog_height) // 2
-    confirm_dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
-
-
-# 加载配置和字典
-load_config()
-load_custom_dict()
-
-# 主窗口设置
-root = tb.Window(themename="minty")
-root.title("日文汉字-假名/罗马音 转换工具")
-# 设置主窗口初始大小为 850x700
-window_width = 850
-window_height = 700
-
-# 获取屏幕尺寸
-screen_width = root.winfo_screenwidth()
-screen_height = root.winfo_screenheight()
-
-# 计算主窗口位置
-x = (screen_width - window_width) // 2
-y = (screen_height - window_height) // 2
-
-# 直接设置主窗口位置
-root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-
-set_window_icon(root)
-
-# 点击“X”时弹出退出确认提示
-root.protocol("WM_DELETE_WINDOW", confirm_exit)
-
-style = tb.Style()
-# 应用词典编辑页面滚动条样式
-style.configure("Vertical.TScrollbar", bootstyle="round", width=8)
-style.configure("Horizontal.TScrollbar", bootstyle="round", width=8)
-
-main_frame = tb.Frame(root, padding=10)
-main_frame.pack(fill=BOTH, expand=True)
-
-# 菜单
-menubar = Menu(root)
-root.config(menu=menubar)
-file_menu = Menu(menubar, tearoff=0)
-menubar.add_cascade(label="文件", menu=file_menu)
-settings_menu = Menu(menubar, tearoff=0)
-menubar.add_cascade(label="设置", menu=settings_menu)
-help_menu = Menu(menubar, tearoff=0)
-menubar.add_cascade(label="帮助", menu=help_menu)
-
-# 添加菜单项
-file_menu.add_command(label="导入词典", command=load_dict)
-file_menu.add_command(label="编辑普通词词典", command=lambda: open_edit_dict_window("normal_words"))
-file_menu.add_command(label="编辑复合词词典", command=lambda: open_edit_dict_window("compound_words"))
-settings_menu.add_command(label="设置默认词库路径", command=open_settings_window)
-file_menu.add_command(label="退出", command=confirm_exit)
-help_menu.add_command(label="关于", command=open_about_window)
-
-# 主界面输入区域
-tb.Label(main_frame, text="输入日文文本", font=("Segoe UI", 12, "bold")).pack(anchor="w")
-text_input = ScrolledText(main_frame, height=6, font=("Segoe UI", 10), wrap="word")
-text_input.pack(fill=BOTH, expand=False, pady=5)
-
-# 转换选项
-tb.Label(main_frame, text="转换方式", font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(10, 0))
-mode_frame = tb.Frame(main_frame)
-mode_frame.pack(fill=X, pady=5)
-
-use_hira = tk.BooleanVar(value=True)
-use_kata = tk.BooleanVar(value=True)
-use_roma = tk.BooleanVar(value=True)
-
-tb.Checkbutton(mode_frame, text="平假名", variable=use_hira).pack(side=LEFT, padx=10)
-tb.Checkbutton(mode_frame, text="片假名", variable=use_kata).pack(side=LEFT, padx=10)
-tb.Checkbutton(mode_frame, text="罗马音", variable=use_roma).pack(side=LEFT, padx=10)
-
-# 转换按钮
-convert_button = tb.Button(main_frame, text="开始转换", bootstyle=PRIMARY,
-                           command=lambda: convert_text(text_input, text_output_text, use_hira, use_kata, use_roma))
-convert_button.pack(pady=10)
-
-# 输出区域
-tb.Label(main_frame, text="转换结果", font=("Segoe UI", 12, "bold")).pack(anchor="w")
-text_output_text = ScrolledText(main_frame, height=8, font=("Segoe UI", 10), wrap="word")
-text_output_text.pack(fill=BOTH, expand=True, pady=5)
-text_output_text.text.configure(state="disabled")
-
-# 复制按钮
-copy_button = tb.Button(main_frame, text="复制结果", bootstyle="secondary",
-                        command=lambda: copy_result(text_output_text, root))
-copy_button.pack(pady=10)
-
-# 运行主循环
-root.mainloop()
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    
+    # 设置应用程序样式
+    app.setStyle(QStyleFactory.create("Fusion"))
+    
+    # 设置默认字体
+    font = QFont("Microsoft YaHei UI", 9)
+    app.setFont(font)
+    
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
