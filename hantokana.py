@@ -1340,6 +1340,7 @@ class DictEditDialog(QDialog):
         
         # 连接信号
         self.copy_on_select.toggled.connect(self.on_selection_changed)
+        self.last_selected_item = None  # 添加标志位
     
     def show_context_menu(self, position):
         """显示右键菜单"""
@@ -1464,18 +1465,17 @@ class DictEditDialog(QDialog):
     
     def on_selection_changed(self):
         """当选中列表项时，如果启用了'选中即复制'，则复制选中项"""
-        try:
-            if self.copy_on_select.isChecked():
-                selected_items = self.list_widget.selectedItems()
-                if selected_items:
-                    text = selected_items[0].text()
-                    QApplication.clipboard().setText(text)
-                    # 显示复制成功的提示框
+        if self.copy_on_select.isChecked():
+            selected_items = self.list_widget.selectedItems()
+            if selected_items:
+                current_item = selected_items[0].text()
+                if current_item != self.last_selected_item:  # 检查是否与上次选中项相同
+                    QApplication.clipboard().setText(current_item)
                     CustomMessageBox(self, "成功", "已复制到剪贴板", style='success').exec()
-                else:
-                    QApplication.clipboard().clear()
-        except Exception as e:
-            pass
+                    self.last_selected_item = current_item  # 更新标志位
+            else:
+                QApplication.clipboard().clear()
+                self.last_selected_item = None  # 清空标志位
 
 class MainWindow(QMainWindow):
     """主窗口"""
