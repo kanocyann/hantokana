@@ -26,11 +26,11 @@
 
 主界面
 
-![image-20250613001555080](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202506130016247.png)
+![image-20250613234602436](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202506132346644.png)
 
 词典编辑界面
 
-![image-20250613003022446](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202506130031249.png)
+![image-20250613234653947](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202506132346019.png)
 
 ### 下载与使用
 
