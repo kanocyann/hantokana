@@ -20,7 +20,7 @@
 
 3. 文件 - 词典导入功能会将你提供的json词库合并到默认词库中
 
-   如果你想用自己的词库也可以在设置中指定默认词库位置
+   如果你想用自己的词库也可以在设置中指定默认词库位置，只要符合词库的json格式即可
 
 ### 应用截图
 
@@ -30,7 +30,7 @@
 
 词典编辑界面
 
-![image-20250613001623017](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202506130016090.png)
+![image-20250613003022446](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202506130031249.png)
 
 ### 下载与使用
 
