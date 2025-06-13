@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QTextEdit, QPushButton, QCheckBox, QLabel, QDialog,
                               QFileDialog, QMenu, QListWidget, QLineEdit, 
                              QFrame, QStyleFactory)
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, QRect, QSize
 from PySide6.QtGui import QIcon, QAction, QFont, QPixmap, QDesktopServices, QPainter, QPen, QColor
 import jaconv
 import pykakasi
@@ -146,25 +146,88 @@ QCheckBox {
 }
 
 QCheckBox::indicator {
-    width: 16px;
-    height: 16px;
-    border: 1px solid #d9d9d9;
-    border-radius: 2px;
+    width: 18px;
+    height: 18px;
+    border: 2px solid #d9d9d9;
+    border-radius: 3px;
     background-color: white;
+    position: relative;
 }
 
 QCheckBox::indicator:checked {
     background-color: #73BBA3;
     border-color: #73BBA3;
+    image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iOSIgdmlld0JveD0iMCAwIDEyIDkiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik0xIDQuNUw0LjUgOEwxMSAxIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgo8L3N2Zz4K);
 }
 
 QCheckBox::indicator:unchecked {
     background-color: white;
     border-color: #d9d9d9;
+    image: none;
 }
 
 QCheckBox::indicator:hover {
     border-color: #73BBA3;
+}
+
+QCheckBox::indicator:checked:hover {
+    background-color: #88D66C;
+    border-color: #88D66C;
+}
+
+/* 开关样式复选框 */
+QCheckBox[type="switch"] {
+    font-size: 13px;
+    spacing: 8px;
+    color: #1f1f1f;
+    background: transparent;
+    padding: 0px;
+    margin: 0px;
+    border: none;
+}
+
+QCheckBox[type="switch"]::indicator {
+    width: 44px;
+    height: 24px;
+    border: 2px solid #d9d9d9;
+    border-radius: 12px;
+    background-color: #f5f5f5;
+}
+
+QCheckBox[type="switch"]::indicator:checked {
+    background-color: #73BBA3;
+    border-color: #73BBA3;
+}
+
+QCheckBox[type="switch"]::indicator:unchecked {
+    background-color: #f5f5f5;
+    border-color: #d9d9d9;
+}
+
+QCheckBox[type="switch"]::indicator:hover {
+    border-color: #73BBA3;
+}
+
+QCheckBox[type="switch"]::indicator:checked:hover {
+    background-color: #88D66C;
+    border-color: #88D66C;
+}
+
+/* 开关滑块 */
+QCheckBox[type="switch"]::indicator::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    background-color: white;
+    transition: left 0.2s ease;
+}
+
+QCheckBox[type="switch"]::indicator:checked::after {
+    left: 22px;
 }
 
 QListWidget {
@@ -480,7 +543,7 @@ DictEditDialog QPushButton[type="secondary"]:pressed {
 """
 
 class CustomCheckBox(QCheckBox):
-    """自定义复选框，支持绿色背景"""
+    """自定义复选框，支持绿色背景和勾选图标"""
     def __init__(self, text="", parent=None):
         super().__init__(text, parent)
         self.setStyleSheet("""
@@ -493,37 +556,136 @@ class CustomCheckBox(QCheckBox):
                 margin: 0px;
                 border: none;
             }
-            
-            QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border: 1px solid #d9d9d9;
-                border-radius: 2px;
-                background-color: white;
-            }
-            
-            QCheckBox::indicator:checked {
-                background-color: #73BBA3;
-                border-color: #73BBA3;
-            }
-            
-            QCheckBox::indicator:unchecked {
-                background-color: white;
-                border-color: #d9d9d9;
-            }
-            
-            QCheckBox::indicator:hover {
-                border-color: #73BBA3;
+        """)
+        # 连接状态变化信号到重绘
+        self.toggled.connect(self.update)
+    
+    def paintEvent(self, event):
+        """自定义绘制复选框效果"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # 获取复选框区域
+        rect = self.rect()
+        text_rect = rect.adjusted(32, 0, 0, 0)  # 为复选框留出更多空间
+        
+        # 绘制文本
+        painter.setPen(QColor("#1f1f1f"))
+        painter.setFont(self.font())
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, self.text())
+        
+        # 计算复选框位置
+        checkbox_x = 8
+        checkbox_y = (rect.height() - 18) // 2
+        checkbox_rect = QRect(checkbox_x, checkbox_y, 18, 18)
+        
+        # 绘制复选框背景
+        if self.isChecked():
+            painter.setBrush(QColor("#73BBA3"))
+            painter.setPen(QColor("#73BBA3"))
+        else:
+            painter.setBrush(QColor("white"))
+            painter.setPen(QColor("#d9d9d9"))
+        
+        painter.drawRoundedRect(checkbox_rect, 3, 3)
+        
+        # 绘制勾选图标
+        if self.isChecked():
+            painter.setPen(QPen(QColor("white"), 2))
+            painter.drawLine(checkbox_x + 3, checkbox_y + 9, checkbox_x + 7, checkbox_y + 13)
+            painter.drawLine(checkbox_x + 7, checkbox_y + 13, checkbox_x + 15, checkbox_y + 5)
+    
+    def sizeHint(self):
+        """返回建议的大小"""
+        text_width = self.fontMetrics().horizontalAdvance(self.text())
+        return QSize(text_width + 40, 30)  # 增加总宽度
+    
+    def mousePressEvent(self, event):
+        """处理鼠标点击事件"""
+        if event.button() == Qt.LeftButton:
+            self.toggle()
+            self.update()  # 强制重绘
+    
+class SwitchCheckBox(QCheckBox):
+    """开关样式的复选框，类似v0.2.py中的info-round-toggle"""
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setStyleSheet("""
+            QCheckBox {
+                font-size: 13px;
+                spacing: 8px;
+                color: #1f1f1f;
+                background: transparent;
+                padding: 0px;
+                margin: 0px;
+                border: none;
             }
         """)
-
+        # 连接状态变化信号到重绘
+        self.toggled.connect(self.update)
+    
+    def paintEvent(self, event):
+        """自定义绘制开关效果"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # 获取复选框区域
+        rect = self.rect()
+        text_rect = rect.adjusted(50, 0, 0, 0)
+        
+        # 绘制文本
+        painter.setPen(QColor("#1f1f1f"))
+        painter.setFont(self.font())
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, self.text())
+        
+        # 计算开关位置
+        switch_x = 8
+        switch_y = (rect.height() - 20) // 2  # 减小开关高度
+        switch_rect = QRect(switch_x, switch_y, 36, 20)  # 减小开关尺寸
+        
+        # 绘制开关背景
+        if self.isChecked():
+            painter.setBrush(QColor("#73BBA3"))
+            painter.setPen(QColor("#73BBA3"))
+        else:
+            painter.setBrush(QColor("#f5f5f5"))
+            painter.setPen(QColor("#d9d9d9"))
+        
+        painter.drawRoundedRect(switch_rect, 10, 10)
+        
+        # 绘制滑块
+        if self.isChecked():
+            slider_x = switch_x + 18
+        else:
+            slider_x = switch_x + 2
+        
+        slider_rect = QRect(slider_x, switch_y + 2, 16, 16)  # 减小滑块尺寸
+        painter.setBrush(QColor("white"))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(slider_rect)
+    
+    def sizeHint(self):
+        """返回建议的大小"""
+        text_width = self.fontMetrics().horizontalAdvance(self.text())
+        return QSize(text_width + 52, 24)  # 减小总宽度和高度
+    
+    def mousePressEvent(self, event):
+        """处理鼠标点击事件"""
+        if event.button() == Qt.LeftButton:
+            # 先切换状态
+            self.setChecked(not self.isChecked())
+            # 然后更新显示
+            self.update()
+            # 最后触发信号
+            self.toggled.emit(self.isChecked())
+    
 class PlainTextEdit(QTextEdit):
     def insertFromMimeData(self, source: QMimeData):
         self.insertPlainText(source.text())
 
 class CustomMessageBox(QDialog):
     """自定义消息框"""
-    def __init__(self, parent, title, message, style='info'):
+    def __init__(self, parent, title, message, style='info', show_dont_show_again=False):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
@@ -568,6 +730,10 @@ class CustomMessageBox(QDialog):
             }
             QPushButton:pressed {
                 background-color: rgba(0, 0, 0, 0.1);
+            }
+            QCheckBox {
+                font-size: 12px;
+                color: #666;
             }
         """)
         
@@ -628,6 +794,13 @@ class CustomMessageBox(QDialog):
         message_label.setWordWrap(True)
         layout.addWidget(message_label)
         
+        # 不再显示选项
+        self.dont_show_again = None
+        if show_dont_show_again and style in ['info', 'success']:
+            self.dont_show_again = QCheckBox("不再显示此提示")
+            self.dont_show_again.setChecked(False)
+            layout.addWidget(self.dont_show_again)
+        
         # 按钮
         button_layout = QHBoxLayout()
         button_layout.setSpacing(8)
@@ -652,27 +825,26 @@ class CustomMessageBox(QDialog):
                     background-color: {color}bb;
                 }}
             """)
-            yes_button.clicked.connect(self.accept)
-            
             no_button = QPushButton("否")
             no_button.setStyleSheet("""
                 QPushButton {
                     background-color: #f5f5f5;
-                    color: #666666;
-                    border: 1px solid #d9d9d9;
+                    color: #666;
+                    border: none;
                     padding: 6px 12px;
                     border-radius: 4px;
                     font-size: 13px;
                     min-width: 60px;
                 }
                 QPushButton:hover {
-                    background-color: #fafafa;
-                    border-color: #73BBA3;
-                    color: #73BBA3;
+                    background-color: #e8e8e8;
+                }
+                QPushButton:pressed {
+                    background-color: #d9d9d9;
                 }
             """)
+            yes_button.clicked.connect(self.accept)
             no_button.clicked.connect(self.reject)
-            
             button_layout.addWidget(yes_button)
             button_layout.addWidget(no_button)
         else:
@@ -698,11 +870,10 @@ class CustomMessageBox(QDialog):
             ok_button.clicked.connect(self.accept)
             button_layout.addWidget(ok_button)
         
-        button_layout.setAlignment(Qt.AlignCenter)
         layout.addLayout(button_layout)
         
-        # 设置最小大小
-        self.setMinimumWidth(280)
+        # 设置固定宽度
+        self.setFixedWidth(300)
         
         # 居中显示
         self.center_on_parent(parent)
@@ -886,7 +1057,7 @@ class DictEditDialog(QDialog):
         input_layout.addWidget(word_label)
         
         self.kanji_edit = QLineEdit()
-        self.kanji_edit.setPlaceholderText("请输入汉字")
+        self.kanji_edit.setPlaceholderText("请输入汉字或复合词")
         self.kanji_edit.setStyleSheet("""
             QLineEdit {
                 border: 1px solid #d9d9d9;
@@ -919,7 +1090,7 @@ class DictEditDialog(QDialog):
         input_layout.addWidget(reading_label)
         
         self.readings_edit = QLineEdit()
-        self.readings_edit.setPlaceholderText("请输入假名，用逗号分隔")
+        self.readings_edit.setPlaceholderText("请输入假名读音，多个读音用逗号分隔")
         self.readings_edit.setStyleSheet("""
             QLineEdit {
                 border: 1px solid #d9d9d9;
@@ -942,7 +1113,7 @@ class DictEditDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(12)
         
-        add_button = QPushButton("添加词条")
+        add_button = QPushButton("保存词条")
         add_button.setStyleSheet("""
             QPushButton {
                 background-color: #73BBA3;
@@ -1070,6 +1241,9 @@ class DictEditDialog(QDialog):
                 width: 12px;
                 border-radius: 6px;
                 margin: 0px;
+                border: none;
+                position: absolute;
+                right: 0px;
             }
             
             QListWidget QScrollBar::handle:vertical {
@@ -1110,6 +1284,9 @@ class DictEditDialog(QDialog):
                 height: 12px;
                 border-radius: 6px;
                 margin: 0px;
+                border: none;
+                position: absolute;
+                bottom: 0px;
             }
             
             QListWidget QScrollBar::handle:horizontal {
@@ -1149,7 +1326,7 @@ class DictEditDialog(QDialog):
         # 选中即复制选项
         copy_layout = QHBoxLayout()
         copy_layout.addStretch()
-        self.copy_on_select = CustomCheckBox("选中即复制")
+        self.copy_on_select = SwitchCheckBox("选中即复制")
         self.copy_on_select.setChecked(False)
         copy_layout.addWidget(self.copy_on_select)
         copy_layout.addStretch()
@@ -1160,6 +1337,9 @@ class DictEditDialog(QDialog):
         
         # 居中显示
         self.center_on_parent(parent)
+        
+        # 连接信号
+        self.copy_on_select.toggled.connect(self.on_selection_changed)
     
     def show_context_menu(self, position):
         """显示右键菜单"""
@@ -1207,155 +1387,27 @@ class DictEditDialog(QDialog):
     
     def add_entry(self):
         """添加词条"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("添加词条")
-        dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
-        dialog.setModal(True)
+        # 使用主界面上的输入框
+        word = self.kanji_edit.text().strip()
+        reading = self.readings_edit.text().strip()
         
-        layout = QVBoxLayout(dialog)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
+        if not word or not reading:
+            CustomMessageBox(self, "警告", "词条和读音不能为空", style='warning').exec()
+            return
         
-        # 创建主框架
-        main_frame = QFrame()
-        main_frame.setStyleSheet("""
-            QFrame {
-                background-color: #fafafa;
-                border: 0px solid;
-                border-radius: 8px;
-                padding: 16px;
-            }
-        """)
-        main_layout = QVBoxLayout(main_frame)
-        main_layout.setSpacing(12)
+        # 检查是否已存在该词条
+        is_edit = word in self.custom_dict[self.word_type]
         
-        # 词条输入
-        word_label = QLabel("词条:")
-        word_label.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-                color: #1f1f1f;
-                padding: 0px;
-                margin: 0px;
-                background: transparent;
-            }
-        """)
-        main_layout.addWidget(word_label)
+        self.custom_dict[self.word_type][word] = self.split_readings(reading)
+        self.update_dict_view()
         
-        word_edit = QLineEdit()
-        word_edit.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #d9d9d9;
-                border-radius: 4px;
-                padding: 8px;
-                background-color: white;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border-color: #73BBA3;
-            }
-        """)
-        main_layout.addWidget(word_edit)
+        # 清空输入框
+        self.kanji_edit.clear()
+        self.readings_edit.clear()
         
-        # 读音输入
-        reading_label = QLabel("读音:")
-        reading_label.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-                color: #1f1f1f;
-                padding: 0px;
-                margin: 0px;
-                background: transparent;
-            }
-        """)
-        main_layout.addWidget(reading_label)
-        
-        reading_edit = QLineEdit()
-        reading_edit.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #d9d9d9;
-                border-radius: 4px;
-                padding: 8px;
-                background-color: white;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border-color: #73BBA3;
-            }
-        """)
-        main_layout.addWidget(reading_edit)
-        
-        # 按钮
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(8)
-        
-        ok_button = QPushButton("确定")
-        ok_button.setStyleSheet("""
-            QPushButton {
-                background-color: #73BBA3;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-size: 13px;
-                min-width: 60px;
-            }
-            QPushButton:hover {
-                background-color: #88D66C;
-            }
-            QPushButton:pressed {
-                background-color: #5A9D8C;
-            }
-        """)
-        
-        cancel_button = QPushButton("取消")
-        cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f5f5f5;
-                color: #666666;
-                border: 1px solid #d9d9d9;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-size: 13px;
-                min-width: 60px;
-            }
-            QPushButton:hover {
-                background-color: #fafafa;
-                border-color: #73BBA3;
-                color: #73BBA3;
-            }
-        """)
-        
-        button_layout.addWidget(ok_button)
-        button_layout.addWidget(cancel_button)
-        button_layout.setAlignment(Qt.AlignCenter)
-        
-        main_layout.addLayout(button_layout)
-        layout.addWidget(main_frame)
-        
-        # 设置最小大小
-        dialog.setMinimumWidth(300)
-        
-        # 居中显示
-        dialog.move(self.frameGeometry().center() - dialog.rect().center())
-        
-        ok_button.clicked.connect(dialog.accept)
-        cancel_button.clicked.connect(dialog.reject)
-        
-        if dialog.exec() == QDialog.Accepted:
-            word = word_edit.text().strip()
-            reading = reading_edit.text().strip()
-            
-            if not word or not reading:
-                CustomMessageBox(self, "警告", "词条和读音不能为空", style='warning').exec()
-                return
-            
-            if word in self.custom_dict:
-                CustomMessageBox(self, "警告", "该词条已存在", style='warning').exec()
-                return
-            
-            self.custom_dict[word] = self.split_readings(reading)
-            self.update_dict_view()
+        if is_edit:
+            CustomMessageBox(self, "成功", "词条更新成功", style='success').exec()
+        else:
             CustomMessageBox(self, "成功", "词条添加成功", style='success').exec()
     
     def edit_entry(self):
@@ -1377,150 +1429,13 @@ class DictEditDialog(QDialog):
         readings = self.custom_dict[self.word_type][word]
         reading = ", ".join(readings)
         
-        dialog = QDialog(self)
-        dialog.setWindowTitle("编辑词条")
-        dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
-        dialog.setModal(True)
+        # 填充到主界面的输入框中
+        self.kanji_edit.setText(word)
+        self.readings_edit.setText(reading)
         
-        layout = QVBoxLayout(dialog)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
-        
-        # 创建主框架
-        main_frame = QFrame()
-        main_frame.setStyleSheet("""
-            QFrame {
-                background-color: #fafafa;
-                border: 0px solid;
-                border-radius: 8px;
-                padding: 16px;
-            }
-        """)
-        main_layout = QVBoxLayout(main_frame)
-        main_layout.setSpacing(12)
-        
-        # 词条输入
-        word_label = QLabel("词条:")
-        word_label.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-                color: #1f1f1f;
-                padding: 0px;
-                margin: 0px;
-                background: transparent;
-            }
-        """)
-        main_layout.addWidget(word_label)
-        
-        word_edit = QLineEdit(word)
-        word_edit.setReadOnly(True)
-        word_edit.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #d9d9d9;
-                border-radius: 4px;
-                padding: 8px;
-                background-color: #f5f5f5;
-                font-size: 13px;
-                color: #666666;
-            }
-        """)
-        main_layout.addWidget(word_edit)
-        
-        # 读音输入
-        reading_label = QLabel("读音:")
-        reading_label.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-                color: #1f1f1f;
-                padding: 0px;
-                margin: 0px;
-                background: transparent;
-            }
-        """)
-        main_layout.addWidget(reading_label)
-        
-        reading_edit = QLineEdit(reading)
-        reading_edit.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #d9d9d9;
-                border-radius: 4px;
-                padding: 8px;
-                background-color: white;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border-color: #73BBA3;
-            }
-        """)
-        main_layout.addWidget(reading_edit)
-        
-        # 按钮
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(8)
-        
-        ok_button = QPushButton("确定")
-        ok_button.setStyleSheet("""
-            QPushButton {
-                background-color: #73BBA3;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-size: 13px;
-                min-width: 60px;
-            }
-            QPushButton:hover {
-                background-color: #88D66C;
-            }
-            QPushButton:pressed {
-                background-color: #5A9D8C;
-            }
-        """)
-        
-        cancel_button = QPushButton("取消")
-        cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f5f5f5;
-                color: #666666;
-                border: 1px solid #d9d9d9;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-size: 13px;
-                min-width: 60px;
-            }
-            QPushButton:hover {
-                background-color: #fafafa;
-                border-color: #73BBA3;
-                color: #73BBA3;
-            }
-        """)
-        
-        button_layout.addWidget(ok_button)
-        button_layout.addWidget(cancel_button)
-        button_layout.setAlignment(Qt.AlignCenter)
-        
-        main_layout.addLayout(button_layout)
-        layout.addWidget(main_frame)
-        
-        # 设置最小大小
-        dialog.setMinimumWidth(300)
-        
-        # 居中显示
-        dialog.move(self.frameGeometry().center() - dialog.rect().center())
-        
-        ok_button.clicked.connect(dialog.accept)
-        cancel_button.clicked.connect(dialog.reject)
-        
-        if dialog.exec() == QDialog.Accepted:
-            reading = reading_edit.text().strip()
-            
-            if not reading:
-                CustomMessageBox(self, "警告", "读音不能为空", style='warning').exec()
-                return
-            
-            self.custom_dict[self.word_type][word] = self.split_readings(reading)
-            self.update_dict_view()
-            CustomMessageBox(self, "成功", "词条修改成功", style='success').exec()
+        # 将焦点设置到读音输入框，方便用户修改
+        self.readings_edit.setFocus()
+        self.readings_edit.selectAll()
     
     def delete_selected(self):
         """删除选中的词条"""
@@ -1549,11 +1464,18 @@ class DictEditDialog(QDialog):
     
     def on_selection_changed(self):
         """当选中列表项时，如果启用了'选中即复制'，则复制选中项"""
-        if self.copy_on_select.isChecked():
-            selected_items = self.list_widget.selectedItems()
-            if selected_items:
-                QApplication.clipboard().setText(selected_items[0].text())
-                CustomMessageBox(self, "成功", "已复制选中词条", style='success').exec()
+        try:
+            if self.copy_on_select.isChecked():
+                selected_items = self.list_widget.selectedItems()
+                if selected_items:
+                    text = selected_items[0].text()
+                    QApplication.clipboard().setText(text)
+                    # 显示复制成功的提示框
+                    CustomMessageBox(self, "成功", "已复制到剪贴板", style='success').exec()
+                else:
+                    QApplication.clipboard().clear()
+        except Exception as e:
+            pass
 
 class MainWindow(QMainWindow):
     """主窗口"""
@@ -1675,13 +1597,100 @@ class MainWindow(QMainWindow):
             QTextEdit {
                 border: 2px solid #73BBA3;
                 border-radius: 4px;
-                padding: 16px;
+                padding: 10px;
+                padding-right: 6px;
                 background-color: white;
                 font-size: 14px;
                 margin-bottom: 16px;
             }
             QTextEdit:focus {
                 border-color: #88D66C;
+            }
+            
+            /* 垂直滚动条样式 */
+            QTextEdit QScrollBar:vertical {
+                background-color: #f0f0f0;
+                width: 12px;
+                border-radius: 6px;
+                margin: 0px;
+                border: none;
+                position: absolute;
+                right: 0px;
+            }
+            
+            QTextEdit QScrollBar::handle:vertical {
+                background-color: #c0c0c0;
+                border-radius: 6px;
+                min-height: 20px;
+                margin: 2px;
+            }
+            
+            QTextEdit QScrollBar::handle:vertical:hover {
+                background-color: #a0a0a0;
+            }
+            
+            QTextEdit QScrollBar::handle:vertical:pressed {
+                background-color: #808080;
+            }
+            
+            QTextEdit QScrollBar::add-line:vertical {
+                height: 0px;
+                subcontrol-position: bottom;
+                subcontrol-origin: margin;
+            }
+            
+            QTextEdit QScrollBar::sub-line:vertical {
+                height: 0px;
+                subcontrol-position: top;
+                subcontrol-origin: margin;
+            }
+            
+            QTextEdit QScrollBar::add-page:vertical,
+            QTextEdit QScrollBar::sub-page:vertical {
+                background-color: transparent;
+            }
+            
+            /* 水平滚动条样式 */
+            QTextEdit QScrollBar:horizontal {
+                background-color: #f0f0f0;
+                height: 12px;
+                border-radius: 6px;
+                margin: 0px;
+                border: none;
+                position: absolute;
+                bottom: 0px;
+            }
+            
+            QTextEdit QScrollBar::handle:horizontal {
+                background-color: #c0c0c0;
+                border-radius: 6px;
+                min-width: 20px;
+                margin: 2px;
+            }
+            
+            QTextEdit QScrollBar::handle:horizontal:hover {
+                background-color: #a0a0a0;
+            }
+            
+            QTextEdit QScrollBar::handle:horizontal:pressed {
+                background-color: #808080;
+            }
+            
+            QTextEdit QScrollBar::add-line:horizontal {
+                width: 0px;
+                subcontrol-position: right;
+                subcontrol-origin: margin;
+            }
+            
+            QTextEdit QScrollBar::sub-line:horizontal {
+                width: 0px;
+                subcontrol-position: left;
+                subcontrol-origin: margin;
+            }
+            
+            QTextEdit QScrollBar::add-page:horizontal,
+            QTextEdit QScrollBar::sub-page:horizontal {
+                background-color: transparent;
             }
         """)
         layout.addWidget(self.text_input)
@@ -1749,13 +1758,100 @@ class MainWindow(QMainWindow):
             QTextEdit {
                 border: 2px solid #73BBA3;
                 border-radius: 4px;
-                padding: 16px;
+                padding: 10px;
+                padding-right: 6px;
                 background-color: white;
                 margin-bottom: 16px;
                 font-size: 14px;
             }
             QTextEdit:focus {
                 border-color: #88D66C;
+            }
+            
+            /* 垂直滚动条样式 */
+            QTextEdit QScrollBar:vertical {
+                background-color: #f0f0f0;
+                width: 12px;
+                border-radius: 6px;
+                margin: 0px;
+                border: none;
+                position: absolute;
+                right: 0px;
+            }
+            
+            QTextEdit QScrollBar::handle:vertical {
+                background-color: #c0c0c0;
+                border-radius: 6px;
+                min-height: 20px;
+                margin: 2px;
+            }
+            
+            QTextEdit QScrollBar::handle:vertical:hover {
+                background-color: #a0a0a0;
+            }
+            
+            QTextEdit QScrollBar::handle:vertical:pressed {
+                background-color: #808080;
+            }
+            
+            QTextEdit QScrollBar::add-line:vertical {
+                height: 0px;
+                subcontrol-position: bottom;
+                subcontrol-origin: margin;
+            }
+            
+            QTextEdit QScrollBar::sub-line:vertical {
+                height: 0px;
+                subcontrol-position: top;
+                subcontrol-origin: margin;
+            }
+            
+            QTextEdit QScrollBar::add-page:vertical,
+            QTextEdit QScrollBar::sub-page:vertical {
+                background-color: transparent;
+            }
+            
+            /* 水平滚动条样式 */
+            QTextEdit QScrollBar:horizontal {
+                background-color: #f0f0f0;
+                height: 12px;
+                border-radius: 6px;
+                margin: 0px;
+                border: none;
+                position: absolute;
+                bottom: 0px;
+            }
+            
+            QTextEdit QScrollBar::handle:horizontal {
+                background-color: #c0c0c0;
+                border-radius: 6px;
+                min-width: 20px;
+                margin: 2px;
+            }
+            
+            QTextEdit QScrollBar::handle:horizontal:hover {
+                background-color: #a0a0a0;
+            }
+            
+            QTextEdit QScrollBar::handle:horizontal:pressed {
+                background-color: #808080;
+            }
+            
+            QTextEdit QScrollBar::add-line:horizontal {
+                width: 0px;
+                subcontrol-position: right;
+                subcontrol-origin: margin;
+            }
+            
+            QTextEdit QScrollBar::sub-line:horizontal {
+                width: 0px;
+                subcontrol-position: left;
+                subcontrol-origin: margin;
+            }
+            
+            QTextEdit QScrollBar::add-page:horizontal,
+            QTextEdit QScrollBar::sub-page:horizontal {
+                background-color: transparent;
             }
         """)
         layout.addWidget(self.text_output)
@@ -1825,15 +1921,16 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
     
     def load_config(self):
-        """加载配置文件"""
-        config_path = self.get_config_path()
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r", encoding="utf-8") as f:
+        """加载配置"""
+        try:
+            if os.path.exists(self.get_config_path()):
+                with open(self.get_config_path(), 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                    self.current_dict_path = config.get('dict_path')
-            except Exception as e:
-                print(f"加载配置文件失败: {str(e)}")
+                    self.current_dict_path = config.get('current_dict_path', self.current_dict_path)
+        except Exception as e:
+            print(f"加载配置时出错: {e}")
+            # 如果加载失败，使用默认配置
+            self.current_dict_path = self.resource_path("dictionary.txt")
     
     def load_custom_dict(self):
         """加载自定义词典"""
@@ -1893,7 +1990,9 @@ class MainWindow(QMainWindow):
     
     def get_config_path(self):
         """获取配置文件路径"""
-        return os.path.join(self.get_appdata_path(), 'config.json')
+        config_dir = os.path.join(os.path.expanduser("~"), "AppData", "Roaming", "HanToKana")
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, "config.json")
     
     def resource_path(self, relative_path):
         """获取资源的绝对路径"""
@@ -2219,22 +2318,19 @@ class MainWindow(QMainWindow):
     
     def save_settings(self, path_edit, settings_window):
         """保存设置"""
-        new_path = path_edit.text().strip()
-        if new_path and os.path.exists(new_path):
-            try:
-                with open(new_path, "r", encoding="utf-8") as f:
-                    self.custom_dict = json.load(f)
-                self.current_dict_path = new_path
-                # 保存配置
-                config = {'dict_path': self.current_dict_path}
-                with open(self.get_config_path(), "w", encoding="utf-8") as f:
-                    json.dump(config, f, ensure_ascii=False, indent=2)
-                CustomMessageBox(settings_window, "成功", "默认词库路径已更新", style='success').exec()
-                settings_window.accept()
-            except Exception as e:
-                CustomMessageBox(settings_window, "错误", f"加载新词典时发生错误: {e}", style='error').exec()
-        else:
-            CustomMessageBox(settings_window, "警告", "请输入有效的 JSON 文件路径", style='warning').exec()
+        new_path = path_edit.text()
+        if new_path != self.current_dict_path:
+            self.current_dict_path = new_path
+        
+        # 保存配置到JSON文件
+        config = {
+            'current_dict_path': self.current_dict_path
+        }
+        
+        with open(self.get_config_path(), 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=4)
+        
+        settings_window.accept()
     
     def open_about_window(self):
         """打开关于页面"""
