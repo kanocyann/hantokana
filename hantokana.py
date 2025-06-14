@@ -1402,6 +1402,16 @@ class DictEditDialog(QDialog):
         self.custom_dict[self.word_type][word] = self.split_readings(reading)
         self.update_dict_view()
         
+        # 保存到文件
+        try:
+            dict_path = self.parent().current_dict_path or self.parent().get_dict_path()
+            os.makedirs(os.path.dirname(dict_path), exist_ok=True)
+            with open(dict_path, "w", encoding="utf-8") as f:
+                json.dump(self.custom_dict, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            CustomMessageBox(self, "错误", f"保存词条时出错: {str(e)}", style='error').exec()
+            return
+        
         # 清空输入框
         self.kanji_edit.clear()
         self.readings_edit.clear()
@@ -1451,6 +1461,17 @@ class DictEditDialog(QDialog):
                 word = item.text().split(" → ")[0]
                 del self.custom_dict[self.word_type][word]
             self.update_dict_view()
+            
+            # 保存到文件
+            try:
+                dict_path = self.parent().current_dict_path or self.parent().get_dict_path()
+                os.makedirs(os.path.dirname(dict_path), exist_ok=True)
+                with open(dict_path, "w", encoding="utf-8") as f:
+                    json.dump(self.custom_dict, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                CustomMessageBox(self, "错误", f"保存词条时出错: {str(e)}", style='error').exec()
+                return
+            
             CustomMessageBox(self, "成功", "词条删除成功", style='success').exec()
     
     def copy_all(self):
@@ -2140,10 +2161,13 @@ class MainWindow(QMainWindow):
                     # 合并字典
                     self.custom_dict["normal_words"] = {**self.custom_dict["normal_words"], **new_dict.get("normal_words", {})}
                     self.custom_dict["compound_words"] = {**self.custom_dict["compound_words"], **new_dict.get("compound_words", {})}
-                    # 确保目标目录存在
-                    os.makedirs(os.path.dirname(self.get_dict_path()), exist_ok=True)
-                    with open(self.get_dict_path(), "w", encoding="utf-8") as f:
+                    
+                    # 保存到当前使用的词库文件
+                    dict_path = self.current_dict_path or self.get_dict_path()
+                    os.makedirs(os.path.dirname(dict_path), exist_ok=True)
+                    with open(dict_path, "w", encoding="utf-8") as f:
                         json.dump(self.custom_dict, f, ensure_ascii=False, indent=2)
+                    
                     CustomMessageBox(self, "成功", "词典导入并合并成功", style='success').exec()
                 else:
                     CustomMessageBox(self, "警告", "所选文件格式无效，请选择一个有效的 JSON 文件", style='warning').exec()
