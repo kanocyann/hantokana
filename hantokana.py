@@ -998,8 +998,20 @@ class DictEditDialog(QDialog):
         super().__init__(parent)
         self.word_type = word_type
         self.custom_dict = custom_dict
-        self.setWindowTitle(f"编辑{'复合词' if word_type == 'compound_words' else '普通词'}词典")
-        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        
+        if word_type == "compound_words":
+            title = "复合词"
+        elif word_type == "normal_words":
+            title = "普通词"
+        elif word_type == "common_combinations":
+            title = "常见后缀组合"
+        elif word_type == "prefix_combinations":
+            title = "常见前缀组合"
+        else:
+            title = "自定义"
+            
+        self.setWindowTitle(f"编辑{title}词典")
+        self.setWindowFlags(Qt.Window)
         self.setModal(True)
         self.setMinimumSize(800, 600)
         
@@ -1043,7 +1055,15 @@ class DictEditDialog(QDialog):
         input_layout.setContentsMargins(12, 12, 12, 12)  # 设置内边距
         
         # 添加标签，去掉底框线
-        word_label = QLabel(f"{'复合词' if word_type == 'compound_words' else '汉字'}")
+        if word_type == 'compound_words':
+            label_text = '复合词'
+        elif word_type == 'common_combinations':
+            label_text = '词汇 (后接助词)'
+        elif word_type == 'prefix_combinations':
+            label_text = '助词 (前接词汇)'
+        else:
+            label_text = '汉字'
+        word_label = QLabel(label_text)
         word_label.setStyleSheet("""
             QLabel {
                 border: none;
@@ -1057,7 +1077,14 @@ class DictEditDialog(QDialog):
         input_layout.addWidget(word_label)
         
         self.kanji_edit = QLineEdit()
-        self.kanji_edit.setPlaceholderText("请输入汉字或复合词")
+        if word_type == 'compound_words':
+            self.kanji_edit.setPlaceholderText("请输入复合词")
+        elif word_type == 'common_combinations':
+            self.kanji_edit.setPlaceholderText("请输入词汇 (如: それ、これ等)")
+        elif word_type == 'prefix_combinations':
+            self.kanji_edit.setPlaceholderText("请输入助词 (如: まで、から等)")
+        else:
+            self.kanji_edit.setPlaceholderText("请输入汉字或词汇")
         self.kanji_edit.setStyleSheet("""
             QLineEdit {
                 border: 1px solid #d9d9d9;
@@ -1075,8 +1102,13 @@ class DictEditDialog(QDialog):
         input_layout.addWidget(self.kanji_edit)
         
         # 添加标签，去掉底框线
-        reading_label = QLabel("对应假名 (用逗号间隔)")
-        reading_label.setStyleSheet("""
+        if word_type == 'common_combinations':
+            self.reading_label = QLabel("对应助词 (用逗号间隔)")
+        elif word_type == 'prefix_combinations':
+            self.reading_label = QLabel("对应词汇 (用逗号间隔)")
+        else:
+            self.reading_label = QLabel("对应假名 (用逗号间隔)")
+        self.reading_label.setStyleSheet("""
             QLabel {
                 border: none;
                 font-size: 13px;
@@ -1087,10 +1119,15 @@ class DictEditDialog(QDialog):
                 padding-left: 0px;
             }
         """)
-        input_layout.addWidget(reading_label)
+        input_layout.addWidget(self.reading_label)
         
         self.readings_edit = QLineEdit()
-        self.readings_edit.setPlaceholderText("请输入假名读音，多个读音用逗号分隔")
+        if word_type == 'common_combinations':
+            self.readings_edit.setPlaceholderText("请输入助词，多个助词用逗号分隔")
+        elif word_type == 'prefix_combinations':
+            self.readings_edit.setPlaceholderText("请输入词汇，多个词汇用逗号分隔")
+        else:
+            self.readings_edit.setPlaceholderText("请输入假名读音，多个读音用逗号分隔")
         self.readings_edit.setStyleSheet("""
             QLineEdit {
                 border: 1px solid #d9d9d9;
@@ -1342,6 +1379,7 @@ class DictEditDialog(QDialog):
         self.copy_on_select.toggled.connect(self.on_selection_changed)
         self.last_selected_item = None  # 添加标志位
     
+    
     def show_context_menu(self, position):
         """显示右键菜单"""
         menu = QMenu()
@@ -1376,9 +1414,21 @@ class DictEditDialog(QDialog):
     def update_dict_view(self):
         """更新词典列表显示"""
         self.list_widget.clear()
+        
+        # 确保词典中存在所需的键
+        if self.word_type not in self.custom_dict:
+            self.custom_dict[self.word_type] = {}
+            
         word_dict = self.custom_dict[self.word_type]
-        for kanji, readings in sorted(word_dict.items()):
-            self.list_widget.addItem(f"{kanji} → {', '.join(readings)}")
+        
+        if self.word_type == "common_combinations" or self.word_type == "prefix_combinations":
+            # 组合词典的显示方式
+            for word, particles in sorted(word_dict.items()):
+                self.list_widget.addItem(f"{word} → {', '.join(particles)}")
+        else:
+            # 普通词和复合词的显示方式
+            for kanji, readings in sorted(word_dict.items()):
+                self.list_widget.addItem(f"{kanji} → {', '.join(readings)}")
     
     def split_readings(self, raw):
         """分割假名字符串为列表"""
@@ -1399,7 +1449,12 @@ class DictEditDialog(QDialog):
         # 检查是否已存在该词条
         is_edit = word in self.custom_dict[self.word_type]
         
-        self.custom_dict[self.word_type][word] = self.split_readings(reading)
+        # 分割读音为列表
+        readings_list = self.split_readings(reading)
+        
+        # 直接更新词典
+        self.custom_dict[self.word_type][word] = readings_list
+        
         self.update_dict_view()
         
         # 保存到文件
@@ -1429,20 +1484,21 @@ class DictEditDialog(QDialog):
             return
         
         item = selected_items[0]
-        word = item.text().split(" → ")[0]
+        item_text = item.text()
         
-        # 添加错误处理
-        if word not in self.custom_dict[self.word_type]:
-            CustomMessageBox(self, "错误", f"词条 '{word}' 不存在于词典中", style='error').exec()
-            return
-            
-        # 获取所有读音并用逗号连接
-        readings = self.custom_dict[self.word_type][word]
-        reading = ", ".join(readings)
+        # 提取词条和读音
+        if " → " in item_text:
+            parts = item_text.split(" → ")
+            word = parts[0]
+            reading_part = parts[1]
         
-        # 填充到主界面的输入框中
-        self.kanji_edit.setText(word)
-        self.readings_edit.setText(reading)
+            # 设置词条和读音
+            self.kanji_edit.setText(word)
+            self.readings_edit.setText(reading_part)
+        else:
+            # 如果格式不对，直接使用整个文本作为词条
+            self.kanji_edit.setText(item_text)
+            self.readings_edit.clear()
         
         # 将焦点设置到读音输入框，方便用户修改
         self.readings_edit.setFocus()
@@ -1458,8 +1514,19 @@ class DictEditDialog(QDialog):
         dialog = CustomMessageBox(self, "确认删除", "确定要删除选中的词条吗？", style='question')
         if dialog.exec() == QDialog.Accepted:
             for item in selected_items:
-                word = item.text().split(" → ")[0]
-                del self.custom_dict[self.word_type][word]
+                item_text = item.text()
+                
+                # 提取词条
+                if " → " in item_text:
+                    word = item_text.split(" → ")[0]
+                    if word in self.custom_dict[self.word_type]:
+                        del self.custom_dict[self.word_type][word]
+                else:
+                    # 如果格式不对，尝试直接使用整个文本作为词条
+                    word = item_text
+                    if word in self.custom_dict[self.word_type]:
+                        del self.custom_dict[self.word_type][word]
+            
             self.update_dict_view()
             
             # 保存到文件
@@ -1500,6 +1567,142 @@ class DictEditDialog(QDialog):
 
 class MainWindow(QMainWindow):
     """主窗口"""
+    # 常见的单独助词
+    pure_particles = {
+        # 格助词
+        'が', 'の', 'を', 'に', 'へ', 'で', 'と', 'から', 'まで', 'より',
+        
+        # 提示助词
+        'は', 'も',
+        
+        # 接续助词
+        'て', 'で', 'ば', 'と', 'けど', 'けれど', 'が', 'のに', 'し',
+        
+        # 终助词
+        'か', 'な', 'ね', 'よ', 'わ', 'ぞ', 'ぜ', 'さ',
+        
+        # 副助词
+        'だけ', 'ばかり', 'まで', 'など', 'なり', 'くらい', 'ぐらい', 'しか',
+        
+        # 并列助词
+        'や', 'とか', 'だの',
+        
+        # 系助词
+        'だ', 'です', 'ます', 'である',
+        
+        # 其他
+        'って', 'じゃ'
+    }
+
+    # 常见的复合助词
+    compound_particles_map = {
+        # だ系列
+        ('だ', 'って'): 'だって',
+        ('だ', 'けど'): 'だけど',
+        ('だ', 'から'): 'だから',
+        ('だ', 'し'): 'だし',
+        ('じゃ', 'ない'): 'じゃない',
+        ('で', 'は'): 'では',
+        ('じゃ', 'ありません'): 'じゃありません',
+        
+        # て系列
+        ('て', 'いる'): 'ている',
+        ('て', 'いた'): 'ていた',
+        ('て', 'ない'): 'てない',
+        ('て', 'は'): 'ては',
+        ('て', 'も'): 'ても',
+        ('て', 'から'): 'てから',
+        
+        # って系列
+        ('って', 'いる'): 'っている',
+        ('って', 'いた'): 'っていた',
+        ('って', 'ない'): 'ってない',
+        
+        # に系列
+        ('に', 'は'): 'には',
+        ('に', 'も'): 'にも',
+        ('に', 'よって'): 'によって',
+        ('に', 'ついて'): 'について',
+        ('に', 'とって'): 'にとって',
+        ('に', 'おいて'): 'において',
+        ('に', 'よる'): 'による',
+        ('に', 'わたって'): 'にわたって',
+        ('に', 'したがって'): 'にしたがって',
+        ('に', 'かけて'): 'にかけて',
+        ('ため', 'に'): 'ために',
+        ('為', 'に'): 'ために',
+        
+        # の系列
+        ('の', 'は'): 'のは',
+        ('の', 'も'): 'のも',
+        ('の', 'で'): 'ので',
+        ('の', 'に'): 'のに',
+        
+        # と系列
+        ('と', 'は'): 'とは',
+        ('と', 'も'): 'とも',
+        ('と', 'して'): 'として',
+        ('と', 'しても'): 'としても',
+        
+        # から系列
+        ('から', 'は'): 'からは',
+        ('から', 'も'): 'からも',
+        ('から', 'の'): 'からの',
+        ('から', 'こそ'): 'からこそ',
+        
+        # まで系列
+        ('まで', 'は'): 'までは',
+        ('まで', 'も'): 'までも',
+        ('まで', 'の'): 'までの',
+        ('まで', 'に'): 'までに',
+        
+        # で系列
+        ('で', 'も'): 'でも',
+        ('で', 'は'): 'では',
+        ('で', 'の'): 'での',
+        
+        # へ系列
+        ('へ', 'は'): 'へは',
+        ('へ', 'も'): 'へも',
+        ('へ', 'の'): 'への',
+        
+        # その他
+        ('かも', 'しれない'): 'かもしれない',
+        ('なけれ', 'ば'): 'なければ',
+        ('みたい', 'だ'): 'みたいだ',
+        ('みたい', 'な'): 'みたいな',
+        ('よう', 'だ'): 'ようだ',
+        ('よう', 'な'): 'ような',
+        ('べき', 'だ'): 'べきだ',
+        ('はず', 'だ'): 'はずだ',
+        ('そう', 'だ'): 'そうだ',
+        ('そう', 'な'): 'そうな',
+        ('なん', 'て'): 'なんて',
+        ('なん', 'か'): 'なんか',
+        ('くらい', 'は'): 'くらいは',
+        ('ぐらい', 'は'): 'ぐらいは',
+        
+        # 常见指示词组合
+        ('それ', 'じゃ'): 'それじゃ',
+        ('それ', 'では'): 'それでは',
+        ('これ', 'じゃ'): 'これじゃ',
+        ('これ', 'では'): 'これでは',
+        ('あれ', 'じゃ'): 'あれじゃ',
+        ('あれ', 'では'): 'あれでは',
+        ('どれ', 'じゃ'): 'どれじゃ',
+        ('どれ', 'では'): 'どれでは',
+        
+        # 常见代词组合
+        ('わたし', 'は'): 'わたしは',
+        ('あなた', 'は'): 'あなたは',
+        ('かれ', 'は'): 'かれは',
+        ('かのじょ', 'は'): 'かのじょは',
+        ('だれ', 'が'): 'だれが',
+        ('なに', 'が'): 'なにが',
+        ('どこ', 'で'): 'どこで',
+        ('いつ', 'も'): 'いつも'
+    }
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("日文汉字-假名/罗马音 转换工具")
@@ -1571,7 +1774,9 @@ class MainWindow(QMainWindow):
         # 初始化变量
         self.custom_dict = {
             "normal_words": {},
-            "compound_words": {}
+            "compound_words": {},
+            "common_combinations": {},
+            "prefix_combinations": {}
         }
         self.current_dict_path = None
         self.tagger = None
@@ -1923,6 +2128,14 @@ class MainWindow(QMainWindow):
         edit_compound_action.triggered.connect(lambda: self.open_edit_dict_window("compound_words"))
         file_menu.addAction(edit_compound_action)
         
+        edit_prefix_combinations_action = QAction("编辑前缀组合词典", self)
+        edit_prefix_combinations_action.triggered.connect(lambda: self.open_edit_dict_window("prefix_combinations"))
+        file_menu.addAction(edit_prefix_combinations_action)
+        
+        edit_combinations_action = QAction("编辑后缀组合词典", self)
+        edit_combinations_action.triggered.connect(lambda: self.open_edit_dict_window("common_combinations"))
+        file_menu.addAction(edit_combinations_action)
+        
         file_menu.addSeparator()
         
         exit_action = QAction("退出", self)
@@ -1972,7 +2185,9 @@ class MainWindow(QMainWindow):
                     with open(custom_dict_path, "w", encoding="utf-8") as f:
                         json.dump({
                             "normal_words": {},
-                            "compound_words": {}
+                            "compound_words": {},
+                            "common_combinations": {},
+                            "prefix_combinations": {}
                         }, f, ensure_ascii=False, indent=2)
             except Exception as e:
                 print(f"初始化字典文件失败: {str(e)}")
@@ -1980,12 +2195,25 @@ class MainWindow(QMainWindow):
         try:
             with open(custom_dict_path, "r", encoding="utf-8") as f:
                 self.custom_dict = json.load(f)
+                
+            # 确保词典包含所有必要的键
+            if "normal_words" not in self.custom_dict:
+                self.custom_dict["normal_words"] = {}
+            if "compound_words" not in self.custom_dict:
+                self.custom_dict["compound_words"] = {}
+            if "common_combinations" not in self.custom_dict:
+                self.custom_dict["common_combinations"] = {}
+            if "prefix_combinations" not in self.custom_dict:
+                self.custom_dict["prefix_combinations"] = {}
+                
             self.current_dict_path = custom_dict_path
         except Exception as e:
             print(f"加载字典文件失败: {str(e)}")
             self.custom_dict = {
                 "normal_words": {},
-                "compound_words": {}
+                "compound_words": {},
+                "common_combinations": {},
+                "prefix_combinations": {}
             }
     
     def save_custom_dict(self):
@@ -2033,12 +2261,16 @@ class MainWindow(QMainWindow):
     
     def init_kks(self):
         """初始化假名转换器"""
-        kks = pykakasi.kakasi()
-        kks.setMode("J", "a")
-        kks.setMode("K", "a")
-        kks.setMode("H", "a")
-        kks.setMode("r", "Hepburn")
-        return kks.getConverter()
+        # 使用新的API
+        kks = pykakasi.Kakasi()
+        # 配置转换选项
+        kks.options = {
+            "H": "a",  # 平假名转罗马字
+            "K": "a",  # 片假名转罗马字
+            "J": "a",  # 汉字转罗马字
+            "r": "Hepburn"  # 使用平文式罗马字
+        }
+        return kks
     
     def convert_text(self):
         """执行日语文本转换"""
@@ -2057,24 +2289,396 @@ class MainWindow(QMainWindow):
 
         result = ""
         try:
+            # 在分词前先检查前缀组合
+            prefix_combinations = self.custom_dict.get("prefix_combinations", {})
+            pre_processed_text = raw
+            
+            # 检查每个前缀组合
+            for prefix, targets in prefix_combinations.items():
+                for target in targets:
+                    # 如果文本中包含前缀+目标词的组合
+
+                    
+                    # 也检查目标词+前缀的组合（因为分词可能会颠倒顺序）
+                    if target + prefix in raw:
+
+                        # 创建一个特殊的词条
+                        word = target + prefix
+                        readings = []
+                        
+                        # 使用pykakasi转换
+                        converted = self.conv.convert(word)
+                        if converted:
+                            # 提取读音（假名形式）
+                            reading = ''.join([item.get('hira', item.get('orig', '')) for item in converted])
+                            if reading:
+                                readings = [reading]
+                        
+                        # 处理所有读音
+                        if readings:
+                            line = f"[{word}]"
+                            
+                            if self.use_hira.isChecked():
+                                # 平假名：先统一转换为平假名
+                                hira_readings = []
+                                for reading in readings:
+                                    # 如果是片假名，先转换为平假名
+                                    hira_reading = jaconv.kata2hira(reading)
+                                    hira_readings.append(hira_reading)
+                                line += f" → [{', '.join(hira_readings)}]"
+                            
+                            if self.use_kata.isChecked():
+                                # 片假名：先统一转换为平假名，再转换为片假名
+                                kata_readings = []
+                                for reading in readings:
+                                    # 先统一转换为平假名，再转换为片假名
+                                    hira_reading = jaconv.kata2hira(reading)
+                                    kata_reading = jaconv.hira2kata(hira_reading)
+                                    kata_readings.append(kata_reading)
+                                line += f" → [{', '.join(kata_readings)}]"
+                            
+                            if self.use_roma.isChecked():
+                                # 罗马音：先统一转换为平假名，再转换为罗马音
+                                roma_readings = []
+                                for reading in readings:
+                                    # 先统一转换为平假名
+                                    hira_reading = jaconv.kata2hira(reading)
+                                    roma_reading = self.convert_to_romaji(hira_reading)
+                                    roma_readings.append(roma_reading)
+                                line += f" → [{', '.join(roma_readings)}]"
+                            
+                            result += line + "\n"
+                            
+                            # 从原始文本中移除已处理的组合
+                            pre_processed_text = pre_processed_text.replace(target + prefix, "")
+                    
+                    # 检查前缀+目标词的组合
+                    if prefix + target in raw:
+
+                        # 创建一个特殊的词条
+                        word = prefix + target
+                        readings = []
+                        
+                        # 使用pykakasi转换
+                        converted = self.conv.convert(word)
+                        if converted:
+                            # 提取读音（假名形式）
+                            reading = ''.join([item.get('hira', item.get('orig', '')) for item in converted])
+                            if reading:
+                                readings = [reading]
+                        
+                        # 处理所有读音
+                        if readings:
+                            line = f"[{word}]"
+                            
+                            if self.use_hira.isChecked():
+                                # 平假名：先统一转换为平假名
+                                hira_readings = []
+                                for reading in readings:
+                                    # 如果是片假名，先转换为平假名
+                                    hira_reading = jaconv.kata2hira(reading)
+                                    hira_readings.append(hira_reading)
+                                line += f" → [{', '.join(hira_readings)}]"
+                            
+                            if self.use_kata.isChecked():
+                                # 片假名：先统一转换为平假名，再转换为片假名
+                                kata_readings = []
+                                for reading in readings:
+                                    # 先统一转换为平假名，再转换为片假名
+                                    hira_reading = jaconv.kata2hira(reading)
+                                    kata_reading = jaconv.hira2kata(hira_reading)
+                                    kata_readings.append(kata_reading)
+                                line += f" → [{', '.join(kata_readings)}]"
+                            
+                            if self.use_roma.isChecked():
+                                # 罗马音：先统一转换为平假名，再转换为罗马音
+                                roma_readings = []
+                                for reading in readings:
+                                    # 先统一转换为平假名
+                                    hira_reading = jaconv.kata2hira(reading)
+                                    roma_reading = self.convert_to_romaji(hira_reading)
+                                    roma_readings.append(roma_reading)
+                                line += f" → [{', '.join(roma_readings)}]"
+                            
+                            result += line + "\n"
+                            
+                            # 从原始文本中移除已处理的组合
+                            pre_processed_text = pre_processed_text.replace(prefix + target, "")
+            
+            # 如果已经处理了所有文本，直接返回结果
+            if pre_processed_text.strip() == "":
+                self.text_output.setPlainText(result.strip())
+                return
+            
+            # 否则继续正常分词处理
             # 先进行正常分词
             words = self.tagger(raw)
             
+
+            
             # 使用集合来跟踪已处理的词，避免重复
             processed_words = set()
+            
+            # 定义常见的动词词尾
+            verb_endings = ['て', 'た', 'ない', 'ます', 'る', 'れる', 'せる', 'らる', 'られる', 'させる', 'てらっしゃい', 'でらっしゃい', 'ください', 'なさい', 'たり', 'だり', 'ちゃう', 'じゃう', 'てる', 'でる', 'とく', 'どく', 'とる', 'どる', 'てみる', 'でみる']
+            
+            # 定义常见的助动词和语气词组合
+            auxiliary_endings = ['たい', 'たく', 'たかっ', 'たけれ', 'たかろ', 'ない', 'なく', 'なかっ', 'なけれ', 'なかろ', 'ます', 'ました', 'ません', 'ませんでした', 'んだ', 'んです', 'のだ', 'のです', 'そうだ', 'そうです', 'ようだ', 'ようです', 'みたいだ', 'みたいです', 'はずだ', 'はずです', 'べきだ', 'べきです', 'ことになる', 'ことにする', 'ことがある', 'ことができる']
+            
+            # 定义需要优先作为整体处理的助动词组合
+            priority_compounds = ['いたいんだ', 'たいんだ', 'なければ', 'ならない', 'かもしれない', 'てしまう', 'でしまう', 'ていく', 'でいく', 'てくる', 'でくる', 'ておく', 'でおく', 'なければならない', 'ことができる', 'ようにする', 'ようにしている', 'ことになっている', 'ことにしている']
+            
+            # 从自定义词典中获取指示词和助词组合
+            # 使用get方法确保即使词典中没有这个键也能返回空字典
+            common_combinations = self.custom_dict.get("common_combinations", {})
+            prefix_combinations = self.custom_dict.get("prefix_combinations", {})
+            
             
             i = 0
             while i < len(words):
                 # 尝试合并复合词
                 for j in range(len(words), i, -1):
                     combined = ''.join([w.surface for w in words[i:j]])
-                    if combined in self.custom_dict["compound_words"]:
+                    if combined in self.custom_dict["compound_words"] or combined in priority_compounds:
                         word = combined
                         i = j
                         break
                 else:
-                    word = words[i].surface
-                    i += 1
+                    # 检查常见组合
+                    if i + 1 < len(words):
+                        current_word = words[i].surface
+                        next_word = words[i + 1].surface
+                        
+                        # 检查是否是常见的指示词+助词组合（后缀模式）
+                        if current_word in common_combinations and next_word in common_combinations[current_word]:
+                            word = current_word + next_word
+                            i += 2
+
+                            continue
+                        
+                        # 检查是否是常见的助词+指示词组合（前缀模式）
+                        if current_word in prefix_combinations and next_word in prefix_combinations[current_word]:
+                            word = current_word + next_word
+                            i += 2
+
+                            continue
+                        
+                        # 另一种检查前缀组合的方式 - 直接遍历前缀组合词典
+                        found_prefix = False
+                        for prefix, targets in prefix_combinations.items():
+                            if current_word == prefix and next_word in targets:
+                                word = current_word + next_word
+                                i += 2
+
+                                found_prefix = True
+                                break
+                            
+                            # 也检查目标词+前缀的组合（因为分词可能会颠倒顺序）
+                            if next_word == prefix and current_word in targets:
+                                word = current_word + next_word
+                                i += 2
+
+                                found_prefix = True
+                                break
+                        
+                        if found_prefix:
+                            continue
+                        
+                        # 检查当前词是否以促音结尾
+                        if current_word.endswith(('っ', 'ッ')):
+                            # 合并促音和后续词
+                            word = current_word + next_word
+                            i += 2
+                        # 检查是否是常见的促音组合
+                        elif (i + 1 < len(words) and 
+                              ('っ' in current_word or 'ッ' in current_word) and
+                              any(x in next_word for x in ['て', 'た', 'ち', 'つ', 'と'])):
+                            word = current_word + next_word
+                            i += 2
+                        # 检查是否是敬语形式
+                        elif (i + 1 < len(words) and 
+                              (next_word == 'てらっしゃい' or next_word == 'でらっしゃい' or 
+                               next_word == 'ください' or next_word == 'なさい' or
+                               'いらっしゃ' in next_word or 'おっしゃ' in next_word or
+                               'くださ' in next_word or 'なさ' in next_word or
+                               'ござい' in next_word or 'いただ' in next_word or
+                               'いたし' in next_word or 'になる' in next_word or
+                               'します' in next_word or 'しました' in next_word)):
+                            word = current_word + next_word
+                            i += 2
+                        # 检查是否是动词词干+词尾的情况
+                        elif next_word in verb_endings or next_word in auxiliary_endings:
+                            # 检查是否是汉字+动词词尾的常见模式
+                            if any(ord(c) in range(0x4E00, 0x9FFF) for c in current_word):
+                                # 特殊处理敬语形式
+                                if (next_word in ['てらっしゃい', 'でらっしゃい', 'ください', 'なさい'] or 
+                                    'らっしゃ' in next_word or 'いらっしゃ' in next_word or 'おっしゃ' in next_word or
+                                    'くださ' in next_word or 'なさ' in next_word or 'ござい' in next_word or
+                                    'いただ' in next_word or 'いたし' in next_word or 'になる' in next_word or
+                                    'ます' in next_word or 'ました' in next_word or 'ません' in next_word or
+                                    'です' in next_word or 'でした' in next_word or 'でしょ' in next_word or
+                                    'お' == next_word[0:1] or 'ご' == next_word[0:1]):
+                                    # 尝试合并更多的敬语部分
+                                    combined_word = current_word + next_word
+                                    i += 2
+                                    # 检查是否还有更多部分需要合并
+                                    while i < len(words) and (
+                                        words[i].surface in ['ます', 'ました', 'ません', 'ませんでした', 'です', 'でした',
+                                                           'でしょう', 'でしょうか', 'ください', 'くださいませ', 'なさい'] or
+                                        'ござい' in words[i].surface or 'いただ' in words[i].surface or
+                                        'いたし' in words[i].surface):
+                                        combined_word += words[i].surface
+                                        i += 1
+                                    word = combined_word
+                                else:
+                                    word = current_word + next_word
+                                    i += 2
+                            # 检查是否是假名动词词干+词尾或形容词+助动词组合
+                            elif current_word.endswith(('し', 'き', 'ち', 'り', 'い', 'み', 'に', 'び', 'ぎ', 'く', 'か', 'さ', 'な')):
+                                # 处理形容词+助动词的特殊情况
+                                # 对于形容词く形式，我们优先保持其独立性，除非是特定组合
+                                if current_word.endswith('く'):
+                                    # 检查是否在自定义词典中有这个形容词
+                                    if current_word in self.custom_dict["normal_words"]:
+                                        word = current_word
+                                        i += 1
+                                    # 如果下一个词是特定助动词，且组合不在词典中，则分开处理
+                                    elif next_word.startswith(('い', 'あ', 'お')) and f"{current_word}{next_word}" not in self.custom_dict["compound_words"]:
+                                        word = current_word
+                                        i += 1
+                                    else:
+                                        # 否则尝试合并
+                                        combined_word = current_word + next_word
+                                        i += 2
+                                        # 检查是否还有更多部分需要合并
+                                        while i < len(words) and (words[i].surface in auxiliary_endings or words[i].surface in ['だ', 'です']):
+                                            combined_word += words[i].surface
+                                            i += 1
+                                        word = combined_word
+                                else:
+                                    word = current_word + next_word
+                                    i += 2
+                            # 检查是否是助动词+语气词组合
+                            elif current_word in auxiliary_endings and next_word in ['だ', 'です', 'ん', 'の', 'でしょう', 'でございます']:
+                                # 合并助动词和语气词
+                                combined_word = current_word + next_word
+                                i += 2
+                                # 检查是否还有更多部分需要合并
+                                while i < len(words) and (
+                                    words[i].surface in ['だ', 'です', 'ね', 'よ', 'か', 'な', 'でしょう', 'でしょうか', 'ございます'] or
+                                    'ござい' in words[i].surface or 'いただ' in words[i].surface or
+                                    'いたし' in words[i].surface):
+                                    combined_word += words[i].surface
+                                    i += 1
+                                word = combined_word
+                            # 检查是否是敬语相关词汇
+                            elif ('お' == current_word[0:1] or 'ご' == current_word[0:1]) and next_word in ['する', 'します', 'しました', 'いたします', 'いたしました']:
+                                # 合并敬语表达
+                                combined_word = current_word + next_word
+                                i += 2
+                                # 检查是否还有更多部分需要合并
+                                while i < len(words) and (
+                                    words[i].surface in ['ます', 'ました', 'ません', 'ませんでした', 'です', 'でした', 'でしょう', 'でしょうか']):
+                                    combined_word += words[i].surface
+                                    i += 1
+                                word = combined_word
+                            # 检查是否是片假名序列
+                            elif all(ord(c) in range(0x30A0, 0x30FF) or c in 'ー・' for c in current_word if c.strip()):
+                                merge_end = i + 1
+                                kata_sequence = [current_word]
+                                
+                                while merge_end < len(words):
+                                    next_word = words[merge_end].surface
+                                    next_is_kata = all(ord(c) in range(0x30A0, 0x30FF) or c in 'ー・' for c in next_word if c.strip())
+                                    if next_is_kata or next_word in ['ー', '・']:
+                                        kata_sequence.append(next_word)
+                                        merge_end += 1
+                                    else:
+                                        break
+                                
+                                if len(kata_sequence) > 1:
+                                    word = ''.join(kata_sequence)
+                                    i = merge_end
+                                else:
+                                    # 检查复合助词
+                                    found_compound = False
+                                    for k in range(1, 4):  # 最多检查3个词的组合
+                                        if i + k <= len(words):
+                                            word_tuple = tuple(w.surface for w in words[i:i+k])
+                                            if word_tuple in self.compound_particles_map:
+                                                word = self.compound_particles_map[word_tuple]
+                                                i += k
+                                                found_compound = True
+                                                break
+                                    
+                                    if not found_compound:
+                                        word = words[i].surface
+                                        i += 1
+                            else:
+                                # 检查复合助词
+                                found_compound = False
+                                for k in range(1, 4):  # 最多检查3个词的组合
+                                    if i + k <= len(words):
+                                        word_tuple = tuple(w.surface for w in words[i:i+k])
+                                        if word_tuple in self.compound_particles_map:
+                                            word = self.compound_particles_map[word_tuple]
+                                            i += k
+                                            found_compound = True
+                                            break
+                                
+                                if not found_compound:
+                                    word = words[i].surface
+                                    i += 1
+                        # 检查是否是片假名序列
+                        elif all(ord(c) in range(0x30A0, 0x30FF) or c in 'ー・' for c in current_word if c.strip()):
+                            merge_end = i + 1
+                            kata_sequence = [current_word]
+                            
+                            while merge_end < len(words):
+                                next_word = words[merge_end].surface
+                                next_is_kata = all(ord(c) in range(0x30A0, 0x30FF) or c in 'ー・' for c in next_word if c.strip())
+                                if next_is_kata or next_word in ['ー', '・']:
+                                    kata_sequence.append(next_word)
+                                    merge_end += 1
+                                else:
+                                    break
+                            
+                            if len(kata_sequence) > 1:
+                                word = ''.join(kata_sequence)
+                                i = merge_end
+                            else:
+                                # 检查复合助词
+                                found_compound = False
+                                for k in range(1, 4):  # 最多检查3个词的组合
+                                    if i + k <= len(words):
+                                        word_tuple = tuple(w.surface for w in words[i:i+k])
+                                        if word_tuple in self.compound_particles_map:
+                                            word = self.compound_particles_map[word_tuple]
+                                            i += k
+                                            found_compound = True
+                                            break
+                                
+                                if not found_compound:
+                                    word = words[i].surface
+                                    i += 1
+                        else:
+                            # 检查复合助词
+                            found_compound = False
+                            for k in range(1, 4):  # 最多检查3个词的组合
+                                if i + k <= len(words):
+                                    word_tuple = tuple(w.surface for w in words[i:i+k])
+                                    if word_tuple in self.compound_particles_map:
+                                        word = self.compound_particles_map[word_tuple]
+                                        i += k
+                                        found_compound = True
+                                        break
+                            
+                            if not found_compound:
+                                word = words[i].surface
+                                i += 1
+                    else:
+                        word = words[i].surface
+                        i += 1
 
                 # 如果这个词已经处理过，跳过
                 if word in processed_words:
@@ -2082,54 +2686,123 @@ class MainWindow(QMainWindow):
                 
                 processed_words.add(word)
 
-                # 对于纯中文文本或标点符号，直接跳过转换
-                if (all(ord(char) > 127 for char in word) and 
-                    not any(ord(char) in range(0x3040, 0x30FF) for char in word) and
-                    not any(ord(char) in range(0x4E00, 0x9FFF) for char in word)):
-                    # 这是纯中文文本或标点符号，不进行转换
-                    continue
-
-                # 检查是否包含日文字符（平假名、片假名、汉字）
-                has_japanese = any(
+                # 对于纯中文文本或非日文字符，直接跳过转换
+                if not any(
                     ord(char) in range(0x3040, 0x309F) or  # 平假名
                     ord(char) in range(0x30A0, 0x30FF) or  # 片假名
                     ord(char) in range(0x4E00, 0x9FFF)     # 汉字
                     for char in word
-                )
-                
-                # 如果不包含日文字符，跳过转换
-                if not has_japanese:
+                ):
                     continue
 
                 # 优先使用自定义词典
                 readings = self.custom_dict["normal_words"].get(word) or self.custom_dict["compound_words"].get(word)
+                
                 if not readings:
                     # 使用pykakasi转换
                     converted = self.conv.convert(word)
-                    readings = [item['hira'] for item in converted]
+                    if converted:
+                        # 提取读音（假名形式）
+                        reading = ''.join([item.get('hira', item.get('orig', '')) for item in converted])
+                        if reading:
+                            readings = [reading]
 
                 # 处理所有读音
                 if readings:
                     line = f"[{word}]"
+                    
                     if self.use_hira.isChecked():
-                        # 如果有多个读音，用逗号分隔
-                        hira_readings = [jaconv.kata2hira(reading) for reading in readings]
+                        # 平假名：先统一转换为平假名
+                        hira_readings = []
+                        for reading in readings:
+                            # 如果是片假名，先转换为平假名
+                            hira_reading = jaconv.kata2hira(reading)
+                            hira_readings.append(hira_reading)
                         line += f" → [{', '.join(hira_readings)}]"
+                    
                     if self.use_kata.isChecked():
-                        kata_readings = [jaconv.hira2kata(jaconv.kata2hira(reading)) for reading in readings]
+                        # 片假名：先统一转换为平假名，再转换为片假名
+                        kata_readings = []
+                        for reading in readings:
+                            # 先统一转换为平假名，再转换为片假名
+                            hira_reading = jaconv.kata2hira(reading)
+                            kata_reading = jaconv.hira2kata(hira_reading)
+                            kata_readings.append(kata_reading)
                         line += f" → [{', '.join(kata_readings)}]"
+                    
                     if self.use_roma.isChecked():
+                        # 罗马音：先统一转换为平假名，再转换为罗马音
                         roma_readings = []
                         for reading in readings:
-                            roma_item = self.conv.convert(reading)[0]
-                            roma_readings.append(roma_item['hepburn'])
+                            # 先统一转换为平假名
+                            hira_reading = jaconv.kata2hira(reading)
+                            roma_reading = self.convert_to_romaji(hira_reading)
+                            roma_readings.append(roma_reading)
                         line += f" → [{', '.join(roma_readings)}]"
+                    
                     result += line + "\n"
             
             self.text_output.setPlainText(result.strip())
         except Exception as e:
             CustomMessageBox(self, "错误", str(e), style='error').exec()
-    
+
+    def convert_to_romaji(self, kana_text):
+        """将假名转换为罗马音，正确处理促音和拗音"""
+        romaji = ""
+        i = 0
+        
+        while i < len(kana_text):
+            char = kana_text[i]
+            
+            if char in ['っ', 'ッ']:  # 促音
+                if i + 1 < len(kana_text):
+                    next_char = kana_text[i + 1]
+                    
+                    # 检查是否是拗音组合
+                    if (i + 2 < len(kana_text) and 
+                        kana_text[i + 2] in ['ゃ', 'ゅ', 'ょ', 'ャ', 'ュ', 'ョ']):
+                        # 处理拗音中的促音 (如っしゃ)
+                        yoon_combo = next_char + kana_text[i + 2]
+                        yoon_result = self.conv.convert(yoon_combo)
+                        if yoon_result:
+                            roma = yoon_result[0].get('hepburn', '')
+                            # 双写第一个辅音
+                            if roma and roma[0] not in 'aeiou':
+                                romaji += roma[0] + roma
+                            else:
+                                romaji += roma
+                        i += 3
+                    else:
+                        # 普通促音处理
+                        next_result = self.conv.convert(next_char)
+                        if next_result:
+                            roma = next_result[0].get('hepburn', '')
+                            # 双写第一个辅音
+                            if roma and roma[0] not in 'aeiou':
+                                romaji += roma[0] + roma
+                            else:
+                                romaji += roma
+                        i += 2
+                else:
+                    i += 1
+            elif (i + 1 < len(kana_text) and 
+                kana_text[i + 1] in ['ゃ', 'ゅ', 'ょ', 'ャ', 'ュ', 'ョ']):
+                # 处理拗音
+                yoon_combo = kana_text[i:i+2]
+                yoon_result = self.conv.convert(yoon_combo)
+                if yoon_result:
+                    romaji += yoon_result[0].get('hepburn', '')
+                i += 2
+            else:
+                # 普通假名
+                char_result = self.conv.convert(char)
+                if char_result:
+                    romaji += char_result[0].get('hepburn', '')
+                i += 1
+        
+        return romaji
+
+   
     def copy_result(self):
         """复制转换结果"""
         QApplication.clipboard().setText(self.text_output.toPlainText())
@@ -2162,6 +2835,40 @@ class MainWindow(QMainWindow):
                     self.custom_dict["normal_words"] = {**self.custom_dict["normal_words"], **new_dict.get("normal_words", {})}
                     self.custom_dict["compound_words"] = {**self.custom_dict["compound_words"], **new_dict.get("compound_words", {})}
                     
+                    # 合并common_combinations
+                    if "common_combinations" in new_dict:
+                        # 确保custom_dict中有common_combinations键
+                        if "common_combinations" not in self.custom_dict:
+                            self.custom_dict["common_combinations"] = {}
+                            
+                        # 合并common_combinations字典
+                        for word, particles in new_dict["common_combinations"].items():
+                            if word in self.custom_dict["common_combinations"]:
+                                # 如果单词已存在，合并助词列表（去重）
+                                existing_particles = set(self.custom_dict["common_combinations"][word])
+                                new_particles = set(particles)
+                                self.custom_dict["common_combinations"][word] = list(existing_particles.union(new_particles))
+                            else:
+                                # 如果单词不存在，直接添加
+                                self.custom_dict["common_combinations"][word] = particles
+                    
+                    # 合并prefix_combinations
+                    if "prefix_combinations" in new_dict:
+                        # 确保custom_dict中有prefix_combinations键
+                        if "prefix_combinations" not in self.custom_dict:
+                            self.custom_dict["prefix_combinations"] = {}
+                            
+                        # 合并prefix_combinations字典
+                        for word, prefixes in new_dict["prefix_combinations"].items():
+                            if word in self.custom_dict["prefix_combinations"]:
+                                # 如果单词已存在，合并前缀列表（去重）
+                                existing_prefixes = set(self.custom_dict["prefix_combinations"][word])
+                                new_prefixes = set(prefixes)
+                                self.custom_dict["prefix_combinations"][word] = list(existing_prefixes.union(new_prefixes))
+                            else:
+                                # 如果单词不存在，直接添加
+                                self.custom_dict["prefix_combinations"][word] = prefixes
+                    
                     # 保存到当前使用的词库文件
                     dict_path = self.current_dict_path or self.get_dict_path()
                     os.makedirs(os.path.dirname(dict_path), exist_ok=True)
@@ -2190,7 +2897,7 @@ class MainWindow(QMainWindow):
         """打开设置窗口"""
         dialog = QDialog(self)
         dialog.setWindowTitle("设置")
-        dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setWindowFlags(Qt.Window)
         dialog.setModal(True)
         
         # 设置窗口图标
@@ -2360,7 +3067,7 @@ class MainWindow(QMainWindow):
         """打开关于页面"""
         dialog = QDialog(self)
         dialog.setWindowTitle("关于")
-        dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setWindowFlags(Qt.Window)
         dialog.setModal(True)
         
         # 设置窗口图标
@@ -2435,7 +3142,7 @@ class MainWindow(QMainWindow):
             print(f"加载图片失败: {str(e)}")
         
         # 版本信息
-        version_label = QLabel("版本: 0.3")
+        version_label = QLabel("版本: 0.3.1")
         version_label.setStyleSheet("""
             font-size: 14px;
             color: #1f1f1f;
