@@ -5,9 +5,10 @@ from ctypes import windll
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QTextEdit, QPushButton, QCheckBox, QLabel, QDialog,
                               QFileDialog, QMenu, QListWidget, QLineEdit, 
-                             QFrame, QStyleFactory)
-from PySide6.QtCore import Qt, QUrl, QRect, QSize
-from PySide6.QtGui import QIcon, QAction, QFont, QPixmap, QDesktopServices, QPainter, QPen, QColor
+                             QFrame, QStyleFactory, QTableWidget, QTableWidgetItem, QHeaderView,
+                             QSizePolicy)
+from PySide6.QtCore import Qt, QUrl, QRect, QSize, QTimer
+from PySide6.QtGui import QIcon, QAction, QFont, QPixmap, QDesktopServices, QPainter, QPen, QColor, QKeySequence, QShortcut
 import jaconv
 import pykakasi
 from fugashi import Tagger
@@ -1267,6 +1268,10 @@ class DictEditDialog(QDialog):
                 outline: none;
                 text-decoration: none;
             }
+            QListWidget::item:selected:focus {
+                outline: none;
+                border: 1px solid #73BBA3;
+            }
             QListWidget::item:hover {
                 background-color: #f5f5f5;
                 border-radius: 4px;
@@ -1781,6 +1786,7 @@ class MainWindow(QMainWindow):
         self.current_dict_path = None
         self.tagger = None
         self.conv = None
+        self.dict_search_dialog = None  # 添加词典搜索对话框变量
         
         # 加载配置和字典
         self.load_config()
@@ -1788,6 +1794,9 @@ class MainWindow(QMainWindow):
         
         # 创建主窗口部件
         self.setup_ui()
+        
+        # 设置快捷键
+        self.setup_shortcuts()
         
         # 居中显示
         self.center_on_screen()
@@ -2147,6 +2156,11 @@ class MainWindow(QMainWindow):
         dict_path_action = QAction("设置默认词库路径", self)
         dict_path_action.triggered.connect(self.open_settings_window)
         settings_menu.addAction(dict_path_action)
+        
+        # 添加词典搜索菜单项
+        dict_search_action = QAction("词典搜索", self)
+        dict_search_action.triggered.connect(self.open_dict_search)
+        settings_menu.addAction(dict_search_action)
         
         # 帮助菜单
         help_menu = menubar.addMenu("帮助")
@@ -3199,6 +3213,1041 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
+    
+    def setup_shortcuts(self):
+        """设置快捷键"""
+        # 添加Ctrl+F快捷键
+        search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        search_shortcut.activated.connect(self.open_dict_search)
+    
+    def open_dict_search(self):
+        """打开词典搜索对话框"""
+        if not self.dict_search_dialog:
+            self.dict_search_dialog = DictSearchDialog(self)
+        
+        # 如果对话框已经打开，则刷新数据
+        if self.dict_search_dialog.isVisible():
+            self.dict_search_dialog.load_dict_data()
+        else:
+            self.dict_search_dialog.show()
+
+class DictSearchDialog(QDialog):
+    """词典搜索对话框"""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle("词典搜索")
+        self.setWindowFlags(Qt.Window)
+        self.setModal(False)  # 非模态对话框，可以与主窗口交互
+        self.setMinimumSize(1100, 400)
+        
+        # 初始化用户调整列宽的标志
+        self.is_user_resizing = False
+        
+        # 初始化列宽比例
+        self.column_ratios = [0.45, 0.45, 0.10]  # 词条45%，读音45%，类型10%
+        
+        # 词典数据和分页相关变量
+        self.all_entries = []  # 存储所有词条
+        self.filtered_entries = []  # 存储筛选后的词条
+        self.current_page = 1
+        self.entries_per_page = 50
+        self.current_type = "全部"  # 当前选中的词条类型
+        self.search_timer = QTimer()  # 用于延迟搜索，提高性能
+        self.search_timer.setSingleShot(True)
+        self.search_timer.timeout.connect(self.perform_search)
+        
+        # 设置窗口图标
+        try:
+            if hasattr(parent, 'resource_path'):
+                icon_path = parent.resource_path("icon.ico")
+                self.setWindowIcon(QIcon(icon_path))
+            else:
+                # 如果父窗口没有resource_path方法，尝试直接使用相对路径
+                icon_path = "icon.ico"
+                if os.path.exists(icon_path):
+                    self.setWindowIcon(QIcon(icon_path))
+        except Exception:
+            # 如果设置图标失败，忽略错误继续执行
+            pass
+        
+        # 创建布局
+        layout = QVBoxLayout(self)
+        layout.setSpacing(16)
+        layout.setContentsMargins(24, 24, 24, 24)
+        
+        # 搜索区域
+        search_frame = QFrame()
+        search_frame.setFrameStyle(QFrame.StyledPanel)
+        search_frame.setStyleSheet("""
+            QFrame {
+                background-color: #fafafa;
+                border: 1px solid #e8e8e8;
+                border-radius: 6px;
+                padding: 12px;
+            }
+        """)
+        search_layout = QVBoxLayout(search_frame)
+        search_layout.setSpacing(8)
+        search_layout.setContentsMargins(12, 12, 12, 12)
+        
+        # 搜索输入框和提示
+        search_input_layout = QHBoxLayout()
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("输入关键词搜索词典（用空格分隔多个关键词）...")
+        self.search_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 8px;
+                background-color: white;
+                font-size: 13px;
+                min-height: 24px;
+            }
+            QLineEdit:focus {
+                border-color: #73BBA3;
+            }
+        """)
+        self.search_edit.textChanged.connect(self.on_search_text_changed)
+        search_input_layout.addWidget(self.search_edit)
+        
+        # 匹配计数标签
+        self.match_count_label = QLabel("0 个匹配")
+        self.match_count_label.setAlignment(Qt.AlignCenter)
+        self.match_count_label.setStyleSheet("""
+            QLabel {
+                color: #666666;
+                font-size: 13px;
+                padding: 0 10px;
+                min-width: 120px;
+                text-align: center;
+            }
+        """)
+        search_input_layout.addWidget(self.match_count_label)
+        
+        search_layout.addLayout(search_input_layout)
+        
+        # 类型筛选区域
+        filter_layout = QHBoxLayout()
+        
+        # 添加类型选择按钮
+        self.type_buttons = {}
+        types = ["全部", "普通词", "复合词", "后缀组合", "前缀组合"]
+        
+        for type_name in types:
+            btn = QPushButton(type_name)
+            btn.setCheckable(True)
+            btn.setAutoExclusive(True)  # 单选模式
+            btn.setFixedHeight(32)
+            
+            # 设置现代化按钮样式
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #f5f5f5;
+                    color: #333333;
+                    border: 1px solid #d9d9d9;
+                    border-radius: 4px;
+                    padding: 4px 12px;
+                    font-size: 13px;
+                    font-weight: normal;
+                }
+                QPushButton:hover {
+                    background-color: #e6f7ff;
+                    border-color: #73BBA3;
+                }
+                QPushButton:pressed {
+                    background-color: #d6ebd0;
+                    border-color: #73BBA3;
+                }
+                QPushButton:checked {
+                    background-color: #73BBA3;
+                    color: white;
+                    border-color: #5A9D8C;
+                }
+            """)
+            
+            # 设置"全部"按钮为默认选中
+            if type_name == "全部":
+                btn.setChecked(True)
+            
+            btn.clicked.connect(lambda checked, t=type_name: self.on_type_filter_clicked(t))
+            filter_layout.addWidget(btn)
+            self.type_buttons[type_name] = btn
+        
+        # 创建分页控件（先不添加到布局中，后面会添加到底部）
+        self.page_info_label = QLabel("第 1 页 / 共 1 页")
+        self.page_info_label.setStyleSheet("""
+            QLabel {
+                color: #666666;
+                font-size: 13px;
+                padding: 0 10px;
+            }
+        """)
+        
+        self.prev_page_btn = QPushButton("上一页")
+        self.prev_page_btn.setFixedWidth(80)
+        self.prev_page_btn.setFixedHeight(32)
+        self.prev_page_btn.clicked.connect(self.go_to_prev_page)
+        self.prev_page_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f5f5f5;
+                color: #333333;
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #e6f7ff;
+                border-color: #73BBA3;
+            }
+            QPushButton:pressed {
+                background-color: #d6ebd0;
+                border-color: #73BBA3;
+            }
+            QPushButton:disabled {
+                background-color: #f5f5f5;
+                color: #d9d9d9;
+                border-color: #e8e8e8;
+            }
+        """)
+        
+        self.next_page_btn = QPushButton("下一页")
+        self.next_page_btn.setFixedWidth(80)
+        self.next_page_btn.setFixedHeight(32)
+        self.next_page_btn.clicked.connect(self.go_to_next_page)
+        self.next_page_btn.setStyleSheet(self.prev_page_btn.styleSheet())
+        
+        # 不再需要提前创建分页布局，我们将在底部直接添加
+        
+        search_layout.addLayout(filter_layout)
+        
+        layout.addWidget(search_frame)
+        
+        # 表格区域
+        self.table_widget = QTableWidget()
+        self.table_widget.setColumnCount(3)
+        self.table_widget.setHorizontalHeaderLabels(["词条", "读音", "类型"])
+        
+        # 设置表头可见
+        self.table_widget.horizontalHeader().setVisible(True)
+        
+        # 设置表格高度（增加表格区域的高度）
+        self.table_widget.setMinimumHeight(350)
+        
+        # 设置默认列宽
+        self.table_widget.setColumnWidth(0, 300)
+        self.table_widget.setColumnWidth(1, 300)
+        self.table_widget.setColumnWidth(2, 100)
+        
+        # 设置最小列宽
+        self.table_widget.horizontalHeader().setMinimumSectionSize(100)
+        
+        # 设置表头调整模式：所有列自动伸展填充可用空间
+        self.table_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table_widget.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table_widget.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        
+        # 设置垂直表头宽度
+        self.table_widget.verticalHeader().setFixedWidth(50)
+        
+        # 设置水平表头策略，确保拖动时保持其他列可见
+        self.table_widget.horizontalHeader().setMinimumSectionSize(150)
+        
+        # 调整表格大小策略
+        self.table_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # 设置表格不允许水平滚动
+        self.table_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        # 设置表格调整大小策略
+        self.table_widget.setSizeAdjustPolicy(QTableWidget.AdjustToContents)
+        
+        # 连接列宽变化信号
+        self.table_widget.horizontalHeader().sectionResized.connect(self.on_section_resized)
+        
+        # 设置表格右键菜单
+        self.table_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table_widget.customContextMenuRequested.connect(self.show_context_menu)
+        
+        # 设置复制快捷键
+        copy_shortcut = QShortcut(QKeySequence.Copy, self.table_widget)
+        copy_shortcut.activated.connect(self.copy_selection)
+        
+        # 设置表格项居中对齐
+        self.table_widget.setStyleSheet("""
+            QTableWidget {
+                border: 1px solid #d9d9d9;
+                border-radius: 4px;
+                background-color: white;
+                font-size: 13px;
+                selection-background-color: #E8F5E9;
+                selection-color: #333333;
+                outline: 0;  /* 移除整个表格的焦点轮廓 */
+            }
+            QTableWidget::item {
+                padding: 6px;
+                border-bottom: 1px solid #f0f0f0;
+                border: none;  /* 移除选中项的边框 */
+                text-align: center;  /* 文字居中 */
+                min-height: 30px;
+            }
+            QTableWidget::item:selected {
+                background-color: #E8F5E9;
+                color: #73BBA3;
+                border: none;  /* 移除选中项的边框 */
+                outline: none;  /* 移除选中项的轮廓线 */
+            }
+            QTableWidget::item:focus {
+                border: none;  /* 移除焦点项的边框 */
+                outline: none;  /* 移除焦点项的轮廓线 */
+            }
+            QTableWidget:focus {
+                outline: none;  /* 表格获得焦点时也不显示轮廓 */
+                border: 1px solid #d9d9d9;  /* 保持相同的边框 */
+            }
+            QHeaderView::section {
+                background-color: #f5f5f5;
+                padding: 6px;
+                border: 1px solid #d9d9d9;
+                font-weight: bold;
+                text-align: center;  /* 表头文字居中 */
+            }
+            /* 垂直滚动条样式 */
+            QTableWidget QScrollBar:vertical {
+                background-color: #f0f0f0;
+                width: 12px;
+                border-radius: 6px;
+                margin: 0px;
+                border: none;
+                position: absolute;
+                right: 0px;
+            }
+            
+            QTableWidget QScrollBar::handle:vertical {
+                background-color: #c0c0c0;
+                border-radius: 6px;
+                min-height: 20px;
+                margin: 2px;
+            }
+            
+            QTableWidget QScrollBar::handle:vertical:hover {
+                background-color: #a0a0a0;
+            }
+            
+            QTableWidget QScrollBar::handle:vertical:pressed {
+                background-color: #808080;
+            }
+            
+            QTableWidget QScrollBar::add-line:vertical {
+                height: 0px;
+                subcontrol-position: bottom;
+                subcontrol-origin: margin;
+            }
+            
+            QTableWidget QScrollBar::sub-line:vertical {
+                height: 0px;
+                subcontrol-position: top;
+                subcontrol-origin: margin;
+            }
+            
+            QTableWidget QScrollBar::add-page:vertical,
+            QTableWidget QScrollBar::sub-page:vertical {
+                background-color: transparent;
+            }
+            
+            /* 水平滚动条样式 */
+            QTableWidget QScrollBar:horizontal {
+                background-color: #f0f0f0;
+                height: 12px;
+                border-radius: 6px;
+                margin: 0px;
+                border: none;
+                position: absolute;
+                bottom: 0px;
+            }
+            
+            QTableWidget QScrollBar::handle:horizontal {
+                background-color: #c0c0c0;
+                border-radius: 6px;
+                min-width: 20px;
+                margin: 2px;
+            }
+            
+            QTableWidget QScrollBar::handle:horizontal:hover {
+                background-color: #a0a0a0;
+            }
+            
+            QTableWidget QScrollBar::handle:horizontal:pressed {
+                background-color: #808080;
+            }
+            
+            QTableWidget QScrollBar::add-line:horizontal {
+                width: 0px;
+                subcontrol-position: right;
+                subcontrol-origin: margin;
+            }
+            
+            QTableWidget QScrollBar::sub-line:horizontal {
+                width: 0px;
+                subcontrol-position: left;
+                subcontrol-origin: margin;
+            }
+            
+            QTableWidget QScrollBar::add-page:horizontal,
+            QTableWidget QScrollBar::sub-page:horizontal {
+                background-color: transparent;
+            }
+        """)
+        
+        layout.addWidget(self.table_widget)
+        
+        # 添加分页控件到底部（简化设计，不使用单独的框架）
+        # 设置页码标签样式保持一致的高度
+        self.page_info_label.setMinimumHeight(32)
+        self.page_info_label.setAlignment(Qt.AlignCenter)
+        
+        # 调整分页布局
+        pagination_layout = QHBoxLayout()
+        pagination_layout.setContentsMargins(0, 8, 0, 0)  # 只需要上方的边距
+        pagination_layout.addStretch()
+        pagination_layout.addWidget(self.prev_page_btn)
+        pagination_layout.addWidget(self.page_info_label)
+        pagination_layout.addWidget(self.next_page_btn)
+        pagination_layout.addStretch()
+        
+        layout.addLayout(pagination_layout)
+        
+        # 更新布局
+        self.remove_focus_rect()
+        self.update_page_controls()
+    
+    def remove_focus_rect(self):
+        """移除表格项的焦点框并优化表格外观"""
+        # 设置表格焦点策略为点击焦点，允许选择但不显示焦点框
+        self.table_widget.setFocusPolicy(Qt.ClickFocus)
+        
+        # 禁用表格的项目编辑但允许选择
+        self.table_widget.setEditTriggers(QTableWidget.NoEditTriggers)
+        
+        # 启用表格的项目选择，允许选择多个单元格以便复制
+        self.table_widget.setSelectionMode(QTableWidget.ExtendedSelection)
+        self.table_widget.setSelectionBehavior(QTableWidget.SelectItems)  # 允许选择单元格而非整行
+        
+        # 设置行号居中对齐
+        for i in range(self.table_widget.rowCount()):
+            item = self.table_widget.verticalHeaderItem(i)
+            if item:
+                item.setTextAlignment(Qt.AlignCenter)
+        
+        # 设置左上角为空白
+        corner_button = self.table_widget.findChild(QWidget, "qt_table_vheader")
+        if corner_button:
+            corner_button.setStyleSheet("""
+                background-color: #f5f5f5;
+                border: 1px solid #d9d9d9;
+            """)
+        
+        # 应用自定义样式表
+        self.table_widget.setStyleSheet(self.table_widget.styleSheet() + """
+            QTableWidget::item:focus {
+                border: 0px;
+                outline: none;
+            }
+            QTableWidget:focus {
+                outline: 0px;
+            }
+            QTableWidget QHeaderView::section:vertical {
+                background-color: #f5f5f5;
+                border: 1px solid #d9d9d9;
+                padding: 3px;
+                text-align: center;
+                font-weight: normal;
+            }
+            QTableWidget::item:selected {
+                background-color: #E8F5E9;
+                color: #73BBA3;
+            }
+            QTableWidget QTableCornerButton::section {
+                background-color: #f5f5f5;
+                border: 1px solid #d9d9d9;
+            }
+        """)
+        
+        # 禁用表格的焦点矩形
+        self.table_widget.setAttribute(Qt.WA_MacShowFocusRect, False)
+    
+    def on_search_text_changed(self, text):
+        """当搜索文本变化时，延迟执行搜索以提高性能"""
+        # 取消之前的定时器
+        self.search_timer.stop()
+        # 启动新的定时器，300毫秒后执行搜索
+        self.search_timer.start(300)
+    
+    def perform_search(self):
+        """执行实际的搜索操作"""
+        # 重置到第一页
+        self.current_page = 1
+        # 执行搜索
+        self.filter_and_display_entries()
+    
+    def on_type_filter_clicked(self, type_name):
+        """处理类型过滤按钮点击"""
+        self.current_type = type_name
+        self.current_page = 1  # 重置到第一页
+        self.filter_and_display_entries()
+    
+    def go_to_prev_page(self):
+        """转到上一页"""
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.display_current_page()
+            self.update_page_controls()
+    
+    def go_to_next_page(self):
+        """转到下一页"""
+        total_pages = self.calculate_total_pages()
+        if self.current_page < total_pages:
+            self.current_page += 1
+            self.display_current_page()
+            self.update_page_controls()
+    
+    def calculate_total_pages(self):
+        """计算总页数"""
+        total_entries = len(self.filtered_entries)
+        return max(1, (total_entries + self.entries_per_page - 1) // self.entries_per_page)
+    
+    def update_page_controls(self):
+        """更新分页控件状态"""
+        total_pages = self.calculate_total_pages()
+        self.page_info_label.setText(f"第 {self.current_page} 页 / 共 {total_pages} 页")
+        
+        # 启用/禁用上一页/下一页按钮
+        self.prev_page_btn.setEnabled(self.current_page > 1)
+        self.next_page_btn.setEnabled(self.current_page < total_pages)
+    
+    def filter_and_display_entries(self):
+        """根据搜索文本和选择的类型过滤词条并显示"""
+        search_text = self.search_edit.text().strip().lower()
+        search_keywords = [keyword.strip() for keyword in search_text.split() if keyword.strip()]
+        
+        # 过滤符合条件的词条
+        self.filtered_entries = []
+        
+        for entry in self.all_entries:
+            # 类型过滤
+            if self.current_type != "全部" and entry['type'] != self.current_type:
+                continue
+            
+            # 关键词搜索
+            if search_keywords:
+                word = entry['word'].lower()
+                readings = entry['readings'].lower()
+                
+                # 检查每个关键词是否匹配
+                all_keywords_match = True
+                for keyword in search_keywords:
+                    if keyword not in word and keyword not in readings:
+                        all_keywords_match = False
+                        break
+                
+                if not all_keywords_match:
+                    continue
+            
+            # 词条符合所有条件，添加到过滤结果中
+            self.filtered_entries.append(entry)
+        
+        # 显示当前页
+        self.display_current_page()
+        
+        # 更新匹配计数和分页控件
+        self.match_count_label.setText(f"{len(self.filtered_entries)} 个匹配")
+        self.update_page_controls()
+    
+    def display_current_page(self):
+        """显示当前页的词条"""
+        # 清空表格
+        self.table_widget.setRowCount(0)
+        
+        # 计算当前页的起始和结束索引
+        start_idx = (self.current_page - 1) * self.entries_per_page
+        end_idx = min(start_idx + self.entries_per_page, len(self.filtered_entries))
+        
+        # 获取当前页的词条
+        current_page_entries = self.filtered_entries[start_idx:end_idx]
+        
+        # 获取搜索关键词
+        search_text = self.search_edit.text().strip().lower()
+        search_keywords = [keyword.strip() for keyword in search_text.split() if keyword.strip()]
+        
+        # 在表格中显示当前页的词条
+        for i, entry in enumerate(current_page_entries):
+            self.table_widget.insertRow(i)
+            
+            # 设置行高，确保内容完全显示
+            self.table_widget.setRowHeight(i, 36)
+            
+            # 设置行号从1开始
+            row_idx = start_idx + i + 1
+            row_header = QTableWidgetItem(str(row_idx))
+            row_header.setTextAlignment(Qt.AlignCenter)
+            self.table_widget.setVerticalHeaderItem(i, row_header)
+            
+            # 添加词条（使用富文本高亮匹配的关键词）
+            word = entry['word']
+            word_lower = word.lower()
+            highlighted_word = word
+            
+            # 高亮搜索关键词
+            if search_keywords:
+                # 收集所有匹配位置
+                matches = []
+                for keyword in search_keywords:
+                    pos = 0
+                    while True:
+                        pos = word_lower.find(keyword, pos)
+                        if pos == -1:
+                            break
+                        matches.append((pos, pos + len(keyword)))
+                        pos += 1
+                
+                # 合并重叠的匹配区域
+                if matches:
+                    matches.sort()
+                    merged_matches = [matches[0]]
+                    for curr_start, curr_end in matches[1:]:
+                        prev_start, prev_end = merged_matches[-1]
+                        if curr_start <= prev_end:
+                            # 合并重叠区域
+                            merged_matches[-1] = (prev_start, max(prev_end, curr_end))
+                        else:
+                            merged_matches.append((curr_start, curr_end))
+                    
+                    # 构建高亮文本
+                    result = ""
+                    last_end = 0
+                    for start, end in merged_matches:
+                        result += word[last_end:start]  # 添加非高亮部分
+                        result += f'<span style="background-color: #FFFF00;">{word[start:end]}</span>'  # 添加高亮部分
+                        last_end = end
+                    result += word[last_end:]  # 添加最后一部分
+                    highlighted_word = result
+            
+            word_item = QTableWidgetItem()
+            word_item.setData(Qt.UserRole, word)  # 存储原始数据
+            
+            if any(keyword in word_lower for keyword in search_keywords):
+                # 设置富文本
+                word_item.setData(Qt.DisplayRole, "")  # 清除普通文本
+                self.table_widget.setItem(i, 0, word_item)
+                self.table_widget.setCellWidget(i, 0, self.create_rich_text_label(highlighted_word))
+            else:
+                # 使用普通文本
+                word_item.setText(word)
+                word_item.setTextAlignment(Qt.AlignCenter)
+                self.table_widget.setItem(i, 0, word_item)
+            
+            # 添加读音（使用富文本高亮匹配的关键词）
+            readings = entry['readings']
+            readings_lower = readings.lower()
+            highlighted_readings = readings
+            
+            # 高亮搜索关键词
+            if search_keywords:
+                # 收集所有匹配位置
+                matches = []
+                for keyword in search_keywords:
+                    pos = 0
+                    while True:
+                        pos = readings_lower.find(keyword, pos)
+                        if pos == -1:
+                            break
+                        matches.append((pos, pos + len(keyword)))
+                        pos += 1
+                
+                # 合并重叠的匹配区域
+                if matches:
+                    matches.sort()
+                    merged_matches = [matches[0]]
+                    for curr_start, curr_end in matches[1:]:
+                        prev_start, prev_end = merged_matches[-1]
+                        if curr_start <= prev_end:
+                            # 合并重叠区域
+                            merged_matches[-1] = (prev_start, max(prev_end, curr_end))
+                        else:
+                            merged_matches.append((curr_start, curr_end))
+                    
+                    # 构建高亮文本
+                    result = ""
+                    last_end = 0
+                    for start, end in merged_matches:
+                        result += readings[last_end:start]  # 添加非高亮部分
+                        result += f'<span style="background-color: #FFFF00;">{readings[start:end]}</span>'  # 添加高亮部分
+                        last_end = end
+                    result += readings[last_end:]  # 添加最后一部分
+                    highlighted_readings = result
+            
+            readings_item = QTableWidgetItem()
+            readings_item.setData(Qt.UserRole, readings)  # 存储原始数据
+            
+            if any(keyword in readings_lower for keyword in search_keywords):
+                # 设置富文本
+                readings_item.setData(Qt.DisplayRole, "")  # 清除普通文本
+                self.table_widget.setItem(i, 1, readings_item)
+                self.table_widget.setCellWidget(i, 1, self.create_rich_text_label(highlighted_readings))
+            else:
+                # 使用普通文本
+                readings_item.setText(readings)
+                readings_item.setTextAlignment(Qt.AlignCenter)
+                self.table_widget.setItem(i, 1, readings_item)
+            
+            # 添加类型
+            type_item = QTableWidgetItem(entry['type'])
+            type_item.setTextAlignment(Qt.AlignCenter)
+            self.table_widget.setItem(i, 2, type_item)
+        
+        # 设置表格外观
+        self.setup_table_appearance()
+    
+    def setup_table_appearance(self):
+        """设置表格外观"""
+        # 设置表格左上角按钮样式
+        corner_button = self.table_widget.findChild(QWidget, "qt_table_vheader")
+        if corner_button:
+            corner_button.setStyleSheet("""
+                background-color: #f5f5f5;
+                border: 1px solid #d9d9d9;
+            """)
+        
+        # 确保所有行号都居中对齐
+        for i in range(self.table_widget.rowCount()):
+            if not self.table_widget.verticalHeaderItem(i):
+                row_header = QTableWidgetItem(str(i + 1))
+                row_header.setTextAlignment(Qt.AlignCenter)
+                self.table_widget.setVerticalHeaderItem(i, row_header)
+    
+    # 这些方法已重新实现为更高效的版本
+    
+    def on_section_resized(self, index, old_size, new_size):
+        """处理列宽变化，确保每列都有合理的宽度"""
+        # 标记为用户正在调整列宽
+        self.is_user_resizing = True
+        
+        # 设置最小列宽和最大列宽比例
+        min_width = 150
+        max_width_ratio = 0.6  # 最大不超过总宽度的60%
+        
+        # 获取表格总宽度和当前所有列宽
+        total_width = self.table_widget.viewport().width()
+        column_widths = [self.table_widget.columnWidth(i) for i in range(3)]
+        
+        # 计算最大允许宽度，确保其他列至少有最小宽度
+        max_allowed_width = total_width - min_width * (len(column_widths) - 1)
+        max_width = min(max_allowed_width, int(total_width * max_width_ratio))
+        
+        # 确保最大宽度不小于最小宽度
+        max_width = max(max_width, min_width)
+        
+        # 确保列宽不小于最小宽度且不超过最大宽度
+        if new_size < min_width:
+            self.table_widget.setColumnWidth(index, min_width)
+        elif new_size > max_width:
+            self.table_widget.setColumnWidth(index, max_width)
+        
+        # 计算调整后的总宽度
+        adjusted_widths = column_widths.copy()
+        adjusted_widths[index] = self.table_widget.columnWidth(index)
+        
+        # 确保其他列也至少有最小宽度
+        remaining_width = total_width - adjusted_widths[index]
+        other_columns = [i for i in range(3) if i != index]
+        
+        # 如果剩余宽度不足以给其他列最小宽度，则调整当前列
+        if remaining_width < min_width * len(other_columns):
+            # 重新计算当前列的最大宽度
+            max_current_width = total_width - min_width * len(other_columns)
+            if max_current_width >= min_width:
+                self.table_widget.setColumnWidth(index, max_current_width)
+            else:
+                # 极端情况，所有列设为最小宽度
+                for i in range(3):
+                    self.table_widget.setColumnWidth(i, min_width)
+        
+        # 确保所有其他列都至少有最小宽度
+        for col in other_columns:
+            if self.table_widget.columnWidth(col) < min_width:
+                self.table_widget.setColumnWidth(col, min_width)
+        
+        # 延迟重置标志位，允许用户调整完成
+        QTimer.singleShot(500, self.reset_resizing_flag)
+    
+    def enforce_column_constraints(self, total_width, min_width):
+        """强制执行列宽约束，确保所有列都有合理的宽度"""
+        # 检查是否是用户手动调整列宽
+        if hasattr(self, 'is_user_resizing') and self.is_user_resizing:
+            return
+            
+        # 如果表格还没有完全初始化，延迟执行
+        if not self.table_widget.isVisible() or total_width <= 0:
+            QTimer.singleShot(100, lambda: self.enforce_column_constraints(
+                self.table_widget.viewport().width(), min_width))
+            return
+            
+        # 获取当前所有列的宽度
+        col0_width = self.table_widget.columnWidth(0)
+        col1_width = self.table_widget.columnWidth(1)
+        col2_width = self.table_widget.columnWidth(2)
+        
+        # 计算可用宽度（减去垂直滚动条宽度和行头宽度）
+        scrollbar_width = 15  # 估计滚动条宽度
+        header_width = self.table_widget.verticalHeader().width()
+        
+        if self.table_widget.verticalScrollBar().isVisible():
+            available_width = max(0, total_width - scrollbar_width)
+        else:
+            available_width = total_width
+            
+        # 确保可用宽度至少能容纳三列最小宽度
+        min_total_width = min_width * 3
+        if available_width < min_total_width:
+            available_width = min_total_width
+        
+        # 计算最大列宽（不超过可用宽度的60%，且确保其他列至少有最小宽度）
+        max_width = min(int(available_width * 0.6), available_width - min_width * 2)
+        
+        # 确保最大宽度不小于最小宽度
+        max_width = max(max_width, min_width)
+        
+        # 计算列宽比例
+        col0_ratio = 0.45  # 词条列占45%
+        col1_ratio = 0.45  # 读音列占45%
+        col2_ratio = 0.10  # 类型列占10%
+        
+        # 计算理想列宽，同时确保不超过最大宽度
+        ideal_col0_width = min(max_width, max(min_width, int(available_width * col0_ratio)))
+        ideal_col1_width = min(max_width, max(min_width, int(available_width * col1_ratio)))
+        ideal_col2_width = min(max_width, max(min_width, int(available_width * col2_ratio)))
+        
+        # 调整总宽度以匹配可用宽度
+        total_ideal_width = ideal_col0_width + ideal_col1_width + ideal_col2_width
+        if total_ideal_width > available_width:
+            # 按比例缩小
+            ratio = available_width / total_ideal_width
+            ideal_col0_width = max(min_width, int(ideal_col0_width * ratio))
+            ideal_col1_width = max(min_width, int(ideal_col1_width * ratio))
+            ideal_col2_width = max(min_width, int(ideal_col2_width * ratio))
+            
+            # 再次检查总宽度
+            total_ideal_width = ideal_col0_width + ideal_col1_width + ideal_col2_width
+            if total_ideal_width > available_width:
+                # 如果仍然超过，从最大的列中减少
+                excess = total_ideal_width - available_width
+                if ideal_col0_width >= ideal_col1_width and ideal_col0_width > min_width:
+                    ideal_col0_width = max(min_width, ideal_col0_width - excess)
+                elif ideal_col1_width > min_width:
+                    ideal_col1_width = max(min_width, ideal_col1_width - excess)
+                elif ideal_col2_width > min_width:
+                    ideal_col2_width = max(min_width, ideal_col2_width - excess)
+        
+        # 确保所有列宽都不超过最大宽度且总和不超过可用宽度
+        ideal_col0_width = min(max_width, ideal_col0_width)
+        ideal_col1_width = min(max_width, ideal_col1_width)
+        ideal_col2_width = min(max_width, ideal_col2_width)
+        
+        # 最后检查：确保总宽度不超过可用宽度
+        total_width_check = ideal_col0_width + ideal_col1_width + ideal_col2_width
+        if total_width_check > available_width:
+            # 如果超过，按比例缩小所有列
+            ratio = available_width / total_width_check
+            ideal_col0_width = max(min_width, int(ideal_col0_width * ratio))
+            ideal_col1_width = max(min_width, int(ideal_col1_width * ratio))
+            ideal_col2_width = max(min_width, int(ideal_col2_width * ratio))
+        
+        # 应用新的列宽
+        self.table_widget.setColumnWidth(0, ideal_col0_width)
+        self.table_widget.setColumnWidth(1, ideal_col1_width)
+        self.table_widget.setColumnWidth(2, ideal_col2_width)
+        
+        # 调整垂直表头宽度
+        self.table_widget.verticalHeader().setFixedWidth(50)
+    
+    def reset_resizing_flag(self):
+        """重置用户调整标志位"""
+        self.is_user_resizing = False
+    
+    def resizeEvent(self, event):
+        """窗口大小改变事件"""
+        super().resizeEvent(event)
+        
+        # 调整表格宽度以适应窗口大小
+        margins = 48  # 考虑窗口边距
+        self.table_widget.setFixedWidth(self.width() - margins)
+        
+        # 重新设置列宽比例
+        self.adjust_columns_to_fit()
+    
+    def adjust_columns_to_fit(self):
+        """调整列宽以适应表格宽度"""
+        # 获取表格可用宽度
+        available_width = self.table_widget.width() - self.table_widget.verticalHeader().width()
+        if self.table_widget.verticalScrollBar().isVisible():
+            available_width -= self.table_widget.verticalScrollBar().width()
+        
+        # 应用列宽比例
+        col0_width = int(available_width * self.column_ratios[0])
+        col1_width = int(available_width * self.column_ratios[1])
+        col2_width = available_width - col0_width - col1_width  # 确保总宽度正好等于可用宽度
+        
+        # 设置列宽
+        self.table_widget.setColumnWidth(0, col0_width)
+        self.table_widget.setColumnWidth(1, col1_width)
+        self.table_widget.setColumnWidth(2, col2_width)
+            
+    def showEvent(self, event):
+        """窗口显示事件"""
+        super().showEvent(event)
+        
+        # 调整表格宽度以适应窗口大小
+        margins = 48  # 考虑窗口边距
+        self.table_widget.setFixedWidth(self.width() - margins)
+        
+        # 窗口显示时，初始化列宽
+        # 使用多个延时，确保在不同时机都能正确设置列宽
+        QTimer.singleShot(50, self.adjust_columns_to_fit)
+        QTimer.singleShot(200, self.adjust_columns_to_fit)
+        QTimer.singleShot(500, self.adjust_columns_to_fit)
+    
+    def show_context_menu(self, position):
+        """显示右键菜单"""
+        menu = QMenu(self)
+        copy_action = menu.addAction("复制")
+        copy_action.triggered.connect(self.copy_selection)
+        
+        menu.exec_(self.table_widget.viewport().mapToGlobal(position))
+    
+    def copy_selection(self):
+        """复制选中的单元格内容到剪贴板"""
+        selected = self.table_widget.selectedItems()
+        if not selected:
+            return
+            
+        # 获取所有选中单元格的行列位置
+        rows = set()
+        cols = set()
+        for item in selected:
+            rows.add(self.table_widget.row(item))
+            cols.add(self.table_widget.column(item))
+        
+        # 按行列顺序排序
+        rows = sorted(list(rows))
+        cols = sorted(list(cols))
+        
+        # 构建文本表格
+        texts = []
+        for row in rows:
+            row_texts = []
+            for col in cols:
+                item = self.table_widget.item(row, col)
+                if item and item in selected:
+                    row_texts.append(item.text())
+                else:
+                    row_texts.append("")
+            texts.append("\t".join(row_texts))
+        
+        # 复制到剪贴板
+        QApplication.clipboard().setText("\n".join(texts))
+    
+    def load_dict_data(self):
+        """加载词典数据"""
+        # 获取词典数据
+        custom_dict = self.parent.custom_dict
+        
+        # 清空数据
+        self.all_entries = []
+        
+        # 加载普通词
+        for word, readings in custom_dict.get("normal_words", {}).items():
+            readings_text = ", ".join(readings) if isinstance(readings, list) else str(readings)
+            self.all_entries.append({
+                'word': word,
+                'readings': readings_text,
+                'type': "普通词"
+            })
+        
+        # 加载复合词
+        for word, readings in custom_dict.get("compound_words", {}).items():
+            readings_text = ", ".join(readings) if isinstance(readings, list) else str(readings)
+            self.all_entries.append({
+                'word': word,
+                'readings': readings_text,
+                'type': "复合词"
+            })
+        
+        # 加载后缀组合
+        for word, particles in custom_dict.get("common_combinations", {}).items():
+            particles_text = ", ".join(particles) if isinstance(particles, list) else str(particles)
+            self.all_entries.append({
+                'word': word,
+                'readings': particles_text,
+                'type': "后缀组合"
+            })
+        
+        # 加载前缀组合
+        for word, targets in custom_dict.get("prefix_combinations", {}).items():
+            targets_text = ", ".join(targets) if isinstance(targets, list) else str(targets)
+            self.all_entries.append({
+                'word': word,
+                'readings': targets_text,
+                'type': "前缀组合"
+            })
+        
+        # 按词条排序
+        self.all_entries.sort(key=lambda x: x['word'])
+        
+        # 应用当前过滤器和搜索
+        self.filter_and_display_entries()
+    
+    def center_on_parent(self, parent):
+        """在父窗口中心显示"""
+        if parent:
+            self.move(parent.frameGeometry().center() - self.rect().center())
+    
+    def showEvent(self, event):
+        """窗口显示时的处理"""
+        super().showEvent(event)
+        
+        # 加载词典数据
+        self.load_dict_data()
+        
+        # 禁用表格项的焦点框
+        self.remove_focus_rect()
+        
+        # 居中显示
+        self.center_on_parent(self.parent)
+        
+        # 调整列宽以适应内容
+        self.adjust_columns_to_fit()
+
+    def create_rich_text_label(self, html_content):
+        """创建富文本标签用于显示高亮文本"""
+        label = QLabel()
+        label.setTextFormat(Qt.RichText)
+        label.setAlignment(Qt.AlignCenter)
+        label.setText(html_content)
+        label.setStyleSheet("""
+            QLabel {
+                background: transparent;
+                padding: 4px;
+                border: none;
+                margin: 0;
+                font-size: 13px;
+                color: #333333;
+            }
+        """)
+        # 确保标签完全填充单元格
+        label.setMinimumHeight(28)
+        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        return label
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
