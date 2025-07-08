@@ -6,10 +6,10 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QTextEdit, QPushButton, QCheckBox, QLabel, QDialog,
                               QFileDialog, QMenu, QListWidget, QLineEdit, 
                              QFrame, QStyleFactory, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QSizePolicy, QComboBox, QStyledItemDelegate)
-from PySide6.QtCore import Qt, QUrl, QRect, QSize, QTimer
+                             QSizePolicy, QComboBox, QStyledItemDelegate, QStyle)
+from PySide6.QtCore import Qt, QUrl, QRect, QSize, QTimer, QRectF
 from PySide6.QtGui import (QIcon, QAction, QFont, QPixmap, QDesktopServices, QPainter, 
-                          QPen, QColor, QKeySequence, QShortcut, QFontMetrics)
+                          QPen, QColor, QKeySequence, QShortcut, QTextOption, QTextDocument, QPalette)
 import jaconv
 import pykakasi
 from fugashi import Tagger
@@ -3679,27 +3679,26 @@ class DictSearchDialog(QDialog):
             /* 垂直滚动条样式 */
             QTableWidget QScrollBar:vertical {
                 background-color: #f0f0f0;
-                width: 12px;
-                border-radius: 6px;
+                width: 16px;  /* 增加宽度 */
+                border-radius: 0px;  /* 移除圆角 */
                 margin: 0px;
-                border: none;
-                position: absolute;
-                right: 0px;
+                border: 1px solid #d9d9d9;
+                border-left: none;
             }
             
             QTableWidget QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                border-radius: 6px;
-                min-height: 20px;
-                margin: 2px;
+                background-color: #a0a0a0;  /* 更深的颜色 */
+                border-radius: 4px;
+                min-height: 30px;  /* 增加最小高度 */
+                margin: 3px;
             }
             
             QTableWidget QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
+                background-color: #808080;  /* 更深的悬停颜色 */
             }
             
             QTableWidget QScrollBar::handle:vertical:pressed {
-                background-color: #808080;
+                background-color: #606060;  /* 更深的按下颜色 */
             }
             
             QTableWidget QScrollBar::add-line:vertical {
@@ -4092,6 +4091,9 @@ class DictSearchDialog(QDialog):
     
     def display_current_page(self):
         """显示当前页的词条"""
+        # 禁用表格更新，减少闪烁
+        self.table_widget.setUpdatesEnabled(False)
+        
         # 清空表格
         self.table_widget.setRowCount(0)
         
@@ -4108,18 +4110,15 @@ class DictSearchDialog(QDialog):
         # 确保设置足够的行数，即使是空行也需要
         self.table_widget.setRowCount(actual_rows)
         
-        # 先设置所有行为默认行高，后面只对需要的行进行调整
-        default_height = 42
-        for i in range(actual_rows):
-            self.table_widget.setRowHeight(i, default_height)
-        
         # 获取搜索关键词
         search_text = self.search_edit.text().strip().lower()
         search_keywords = [keyword.strip() for keyword in search_text.split() if keyword.strip()]
         
+        # 预计算所有行的高度
+        row_heights = []
+        
         # 在表格中显示当前页的词条
         for i, entry in enumerate(current_page_entries):
-            
             # 设置行号从1开始
             row_idx = start_idx + i + 1
             row_header = QTableWidgetItem(str(row_idx))
@@ -4185,8 +4184,6 @@ class DictSearchDialog(QDialog):
                 self.table_widget.setItem(i, 0, word_item)
                 self.table_widget.setCellWidget(i, 0, rich_label)
             
-            # 行高将由代理自动处理
-            
             # 添加读音/前缀/后缀（使用富文本高亮匹配的关键词）
             readings = entry['readings']
             readings_lower = readings.lower()
@@ -4246,8 +4243,6 @@ class DictSearchDialog(QDialog):
                 self.table_widget.setItem(i, 1, readings_item)
                 self.table_widget.setCellWidget(i, 1, rich_label)
             
-            # 行高将由代理自动处理
-            
             # 添加类型
             type_item = QTableWidgetItem()
             type_item.setData(Qt.UserRole, entry['type'])  # 存储原始数据
@@ -4257,12 +4252,33 @@ class DictSearchDialog(QDialog):
             # 使用富文本标签以确保类型列也能正常换行
             type_label = self.create_rich_text_label(entry['type'])
             self.table_widget.setCellWidget(i, 2, type_label)
+            
+            # 预计算行高 - 使用QTextDocument计算
+            col_heights = []
+            for col in range(3):
+                cell_widget = self.table_widget.cellWidget(i, col)
+                if isinstance(cell_widget, CenteredLabel):
+                    # 获取标签高度
+                    col_heights.append(cell_widget.minimumHeight())
+            
+            # 取所有列中最大的高度作为行高
+            if col_heights:
+                row_heights.append(max(col_heights))
+            else:
+                row_heights.append(42)  # 默认行高
+        
+        # 一次性设置所有行高，减少重绘次数
+        for i, height in enumerate(row_heights):
+            self.table_widget.setRowHeight(i, height)
         
         # 设置表格外观
         self.setup_table_appearance()
         
+        # 重新启用表格更新
+        self.table_widget.setUpdatesEnabled(True)
+        
         # 只检查滚动条，不强制调整所有行高
-        QTimer.singleShot(500, self.scroll_to_bottom_check)
+        QTimer.singleShot(100, self.scroll_to_bottom_check)
         
     def ensure_all_rows_visible(self, rows_count):
         """确保所有行都可见，包括最后一行，但不添加多余的底部空间"""
@@ -4271,41 +4287,10 @@ class DictSearchDialog(QDialog):
             
         # 计算需要的表格高度
         header_height = self.table_widget.horizontalHeader().height()
-        total_row_height = 0
         
-        # 为每一行设置足够的行高，以适应文本换行
-        default_height = 42  # 默认行高
+        # 直接计算所有行的总高度，不再重新调整行高
+        total_row_height = sum(self.table_widget.rowHeight(i) for i in range(min(rows_count, self.table_widget.rowCount())))
         
-        for i in range(rows_count):
-            if i < self.table_widget.rowCount():
-                # 获取每列的单元格内容，计算所需行高
-                needs_stretch = False
-                max_height = default_height
-                
-                for col in range(3):  # 三列：词条、读音和类型
-                    cell_widget = self.table_widget.cellWidget(i, col)
-                    if cell_widget and isinstance(cell_widget, QLabel):
-                        # 获取标签内容所需的高度
-                        cell_widget.adjustSize()
-                        content_height = cell_widget.height() + 12  # 增加一些内边距
-                        
-                        # 只有当内容高度超过默认高度时才拉伸
-                        if content_height > default_height:
-                            needs_stretch = True
-                            max_height = max(max_height, content_height)
-                
-                # 只有需要拉伸的行才设置更大的行高
-                if needs_stretch:
-                    self.table_widget.setRowHeight(i, max_height)
-                    total_row_height += max_height
-                else:
-                    # 使用默认行高
-                    self.table_widget.setRowHeight(i, default_height)
-                    total_row_height += default_height
-            else:
-                # 对于不存在的行，使用默认高度
-                total_row_height += default_height
-            
         # 添加最小的额外空间，只确保最后一行完全可见
         padding = 5  # 减小到极小的值
         
@@ -4332,9 +4317,9 @@ class DictSearchDialog(QDialog):
             # 设置滚动范围，确保最后一行可完全显示
             vsb.setMaximum(max_value)
             
-                    # 通过定时器延迟执行滚动到底部的操作，确保正确设置滚动范围
-        # 增加延迟时间，确保界面完全更新后再调整滚动条
-        QTimer.singleShot(200, self.scroll_to_bottom_check)
+        # 通过定时器延迟执行滚动到底部的操作，确保正确设置滚动范围
+        # 减少延迟时间，加快响应速度
+        QTimer.singleShot(100, self.scroll_to_bottom_check)
     
     def scroll_to_bottom_check(self):
         """确保可以滚动到底部，确保最后一行完全可见，但不留太多空白"""
@@ -4353,66 +4338,43 @@ class DictSearchDialog(QDialog):
         if not vsb:
             return
             
-        # 计算所有行的总高度
-        total_height = 0
-        for i in range(rows):
-            total_height += self.table_widget.rowHeight(i)
-            
-        # 添加最小额外空间确保滚动条可以显示到最后一行，但不超出
-        viewport_height = self.table_widget.viewport().height()
-        header_height = self.table_widget.horizontalHeader().height()
-        
-        # 计算滚动条最大值，确保最后一行完全可见
-        # 这里加上最后一行的完整行高，确保最后一行完全显示
-        last_row_height = self.table_widget.rowHeight(rows - 1) if rows > 0 else 42  # 更新默认行高
-        
-        # 增加额外空间确保最后一行一定可见（之前可能有丢失一行的问题）
-        extra_buffer = 15  # 额外的缓冲区，以确保绝对可见
-        precise_max = total_height + header_height - viewport_height + last_row_height + extra_buffer
-        if precise_max < 0:
-            precise_max = 0
-            
-        vsb.setMaximum(precise_max)
-            
         # 记住当前滚动位置
         current_pos = vsb.value()
         
-        # 临时滚动到底部，检查最后一行是否可见
-        # 使用EnsureVisible确保项目一定可见
-        self.table_widget.scrollToItem(last_item, QTableWidget.EnsureVisible)
+        # 计算所有行的总高度（使用已经设置好的行高）
+        total_height = sum(self.table_widget.rowHeight(i) for i in range(rows))
         
-        # 获取最后一行的位置和大小
+        # 计算滚动条最大值，确保最后一行完全可见
+        viewport_height = self.table_widget.viewport().height()
+        header_height = self.table_widget.horizontalHeader().height()
+        last_row_height = self.table_widget.rowHeight(last_row_index)
+        
+        # 增加额外空间确保最后一行完全可见
+        extra_buffer = last_row_height + 5  # 使用最后一行高度加上额外空间
+        max_value = total_height + header_height - viewport_height + extra_buffer
+        if max_value < 0:
+            max_value = 0
+            
+        # 设置滚动条最大值
+        vsb.setMaximum(max_value)
+        
+        # 测试是否可以滚动到底部查看最后一行
+        temp_pos = vsb.value()
+        vsb.setValue(vsb.maximum())
+        
+        # 检查最后一行是否可见
         last_row_rect = self.table_widget.visualItemRect(last_item)
         viewport_rect = self.table_widget.viewport().rect()
         
-        # 强制确保最后一行完全可见
+        # 如果最后一行不完全可见，增加更多空间
         if not viewport_rect.contains(last_row_rect.bottomRight()):
-            # 计算需要额外增加的空间，确保最后一行完全可见
-            extra_space = last_row_rect.bottom() - viewport_rect.bottom() + 20  # 增加足够的空间
-            
-            # 调整滚动条最大值
+            # 计算需要额外增加的空间
+            extra_space = last_row_rect.bottom() - viewport_rect.bottom() + 5
             vsb.setMaximum(vsb.maximum() + extra_space)
-            
-            # 再次尝试滚动到底部查看是否可见
-            self.table_widget.scrollToItem(last_item, QTableWidget.PositionAtBottom)
-            
-            # 如果还是不可见，增加更多空间
-            last_row_rect = self.table_widget.visualItemRect(last_item)
-            viewport_rect = self.table_widget.viewport().rect()
-            if not viewport_rect.contains(last_row_rect.bottomRight()):
-                # 确保完全可见，多增加一些空间
-                exact_needed_space = last_row_rect.bottom() - viewport_rect.bottom() + 20
-                vsb.setMaximum(vsb.maximum() + exact_needed_space)
-                
-                # 最后检查一次
-                self.table_widget.scrollToItem(last_item, QTableWidget.PositionAtBottom)
-                if not viewport_rect.contains(last_row_rect.bottomRight()):
-                    # 如果还是不可见，增加更多空间确保显示
-                    vsb.setMaximum(vsb.maximum() + last_row_rect.height())
-                
+        
         # 恢复原始滚动位置
         vsb.setValue(current_pos)
-                
+    
     def setup_table_appearance(self):
         """设置表格外观"""
         # 设置表格左上角按钮样式
@@ -4834,19 +4796,13 @@ class WordWrapDelegate(QStyledItemDelegate):
     """自定义表格项代理，处理文本换行"""
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.height_cache = {}  # 缓存行高计算结果
         
     def paint(self, painter, option, index):
         """重写绘制方法，支持文本换行"""
-        # 禁用省略号，确保文本不会被截断
-        option.textElideMode = Qt.ElideNone
-        
         # 检查单元格是否有部件
         if index.model().data(index, Qt.DisplayRole):
             # 对于没有自定义部件的单元格，处理文本换行
-            text_option = QTextOption()
-            text_option.setWrapMode(QTextOption.WordWrap)
-            
-            rect = option.rect
             text = index.data(Qt.DisplayRole)
             
             # 绘制背景和选择效果
@@ -4854,14 +4810,30 @@ class WordWrapDelegate(QStyledItemDelegate):
             style = option.widget.style() if option.widget else QApplication.style()
             style.drawControl(QStyle.CE_ItemViewItem, option, painter, option.widget)
             
-            # 绘制文本
-            margin = 6  # 边距
-            text_rect = rect.adjusted(margin, margin, -margin, -margin)
-            alignment = index.data(Qt.TextAlignmentRole) or Qt.AlignCenter
+            # 创建文本文档来绘制文本
+            doc = QTextDocument()
+            doc.setHtml(text)  # 支持HTML格式
+            doc.setTextWidth(option.rect.width() - 12)  # 减去边距
             
+            # 设置文本选项
+            text_option = QTextOption()
+            text_option.setWrapMode(QTextOption.WordWrap)
+            text_option.setAlignment(Qt.AlignCenter)
+            doc.setDefaultTextOption(text_option)
+            
+            # 绘制文本
             painter.save()
-            painter.setClipRect(text_rect)
-            painter.drawText(text_rect, alignment, text)
+            painter.translate(option.rect.left() + 6, option.rect.top() + 6)  # 添加边距
+            clip_rect = QRectF(0, 0, option.rect.width() - 12, option.rect.height() - 12)
+            painter.setClipRect(clip_rect)
+            
+            # 设置文本颜色
+            if option.state & QStyle.State_Selected:
+                painter.setPen(option.palette.color(QPalette.HighlightedText))
+            else:
+                painter.setPen(option.palette.color(QPalette.Text))
+                
+            doc.drawContents(painter)
             painter.restore()
         else:
             # 对于有自定义部件的单元格，使用默认绘制
@@ -4877,19 +4849,36 @@ class WordWrapDelegate(QStyledItemDelegate):
         default_height = 42
         
         # 计算文本宽度
-        rect = option.rect
-        width = rect.width() - 20
+        width = option.rect.width()
+        if width <= 0:
+            width = 200  # 默认宽度
         
-        # 计算需要的高度
-        fm = option.fontMetrics
-        text_rect = fm.boundingRect(0, 0, width, 2000, Qt.TextWordWrap | Qt.AlignCenter, text)
-        text_height = text_rect.height() + 12
+        # 使用缓存避免重复计算
+        cache_key = f"{text}:{width}"
+        if cache_key in self.height_cache:
+            return QSize(width, self.height_cache[cache_key])
+            
+        # 使用QTextDocument计算高度
+        doc = QTextDocument()
+        doc.setHtml(text)  # 支持HTML格式
+        doc.setTextWidth(width - 12)  # 减去边距
         
-        # 只有当内容确实需要更多空间时才返回更大的高度
-        if text_height > default_height:
-            return QSize(rect.width(), text_height)
-        else:
-            return QSize(rect.width(), default_height)
+        # 设置文本选项
+        text_option = QTextOption()
+        text_option.setWrapMode(QTextOption.WordWrap)
+        text_option.setAlignment(Qt.AlignCenter)
+        doc.setDefaultTextOption(text_option)
+        
+        # 计算文档高度
+        text_height = doc.size().height() + 12  # 添加边距
+        
+        # 确保最小高度
+        result_height = max(default_height, int(text_height))
+        
+        # 缓存结果
+        self.height_cache[cache_key] = result_height
+        
+        return QSize(width, result_height)
 
     def createEditor(self, parent, option, index):
         """禁止编辑，确保只读状态"""
@@ -4902,6 +4891,7 @@ class CenteredLabel(QLabel):
         
         # 保存原始内容
         self.original_content = html_content
+        self.height_cache = {}  # 缓存高度计算结果
         
         # 在HTML内容中直接添加居中样式
         centered_html = f'<div align="center" style="text-align:center; width:100%;">{html_content}</div>'
@@ -4926,31 +4916,53 @@ class CenteredLabel(QLabel):
         # 启用文本换行
         self.setWordWrap(True)
         
-        # 计算内容所需高度
-        self.adjustHeight(html_content)
+        # 使用QTextDocument计算高度
+        self.calculateOptimalHeight()
     
     def get_plain_text(self):
         """获取不包含HTML标签的纯文本内容"""
         # 使用正则表达式去除所有HTML标签
         return re.sub(r'<[^>]*>', '', self.original_content)
     
-    def adjustHeight(self, html_content):
-        """调整标签高度以适应内容"""
-        # 计算内容所需高度
-        font_metrics = QFontMetrics(self.font())
-        text = html_content.replace(r'<span style="background-color: #FFFF00;">', '').replace('</span>', '')
-        text_width = self.width() - 20  # 减去一些padding
-        if text_width <= 0:
-            text_width = 200  # 默认宽度估计
+    def calculateOptimalHeight(self):
+        """使用QTextDocument计算最佳高度"""
+        # 获取当前宽度
+        width = self.width() - 12  # 减去padding
+        if width <= 0:
+            width = 200  # 默认宽度
             
-        # 只有当内容确实需要更多空间时才设置更大的高度
-        text_height = font_metrics.boundingRect(0, 0, text_width, 2000, Qt.TextWordWrap | Qt.AlignCenter, text).height()
-        if text_height > 30:  # 只有当内容高度超过基本高度时才调整
-            self.setMinimumHeight(text_height + 10)  # 添加一些padding
+        # 检查缓存
+        cache_key = f"{self.original_content}:{width}"
+        if cache_key in self.height_cache:
+            self.setMinimumHeight(self.height_cache[cache_key])
+            return
+            
+        # 使用QTextDocument计算高度
+        doc = QTextDocument()
+        doc.setHtml(self.original_content)
+        doc.setTextWidth(width)
+        
+        # 设置文本选项
+        text_option = QTextOption()
+        text_option.setWrapMode(QTextOption.WordWrap)
+        text_option.setAlignment(Qt.AlignCenter)
+        doc.setDefaultTextOption(text_option)
+        
+        # 计算高度并添加边距
+        height = int(doc.size().height()) + 10
+        
+        # 设置最小高度
+        optimal_height = max(30, height)
+        self.setMinimumHeight(optimal_height)
+        
+        # 缓存结果
+        self.height_cache[cache_key] = optimal_height
     
     def resizeEvent(self, event):
         """重写大小变化事件，确保调整大小后文本仍然居中"""
         super().resizeEvent(event)
+        # 重新计算高度
+        self.calculateOptimalHeight()
         # 重新设置对齐方式
         self.setAlignment(Qt.AlignCenter)
 
