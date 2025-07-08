@@ -3348,7 +3348,7 @@ class DictSearchDialog(QDialog):
         
         # 添加类型选择按钮
         self.type_buttons = {}
-        types = ["全部", "普通词", "复合词", "后缀组合", "前缀组合"]
+        types = ["全部", "普通词", "复合词", "前缀组合", "后缀组合"]
         
         for type_name in types:
             btn = QPushButton(type_name)
@@ -3540,7 +3540,9 @@ class DictSearchDialog(QDialog):
         # 表格区域
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(3)
-        self.table_widget.setHorizontalHeaderLabels(["词条", "读音", "类型"])
+        
+        # 设置默认表头标签
+        self.update_table_headers()
         
         # 设置表头可见
         self.table_widget.horizontalHeader().setVisible(True)
@@ -3868,10 +3870,25 @@ class DictSearchDialog(QDialog):
         # 执行搜索
         self.filter_and_display_entries()
     
+    def update_table_headers(self):
+        """根据当前选择的类型更新表格列标题"""
+        if self.current_type == "普通词" or self.current_type == "复合词":
+            self.table_widget.setHorizontalHeaderLabels(["词条", "读音", "类型"])
+        elif self.current_type == "前缀组合":
+            self.table_widget.setHorizontalHeaderLabels(["词条", "前缀", "类型"])
+        elif self.current_type == "后缀组合":
+            self.table_widget.setHorizontalHeaderLabels(["词条", "后缀", "类型"])
+        else:  # "全部"
+            self.table_widget.setHorizontalHeaderLabels(["词条", "内容", "类型"])
+    
     def on_type_filter_clicked(self, type_name):
         """处理类型过滤按钮点击"""
         self.current_type = type_name
         self.current_page = 1  # 重置到第一页
+        
+        # 更新表格列标题
+        self.update_table_headers()
+        
         self.filter_and_display_entries()
     
     def go_to_prev_page(self):
@@ -3885,10 +3902,10 @@ class DictSearchDialog(QDialog):
             self.table_widget.verticalScrollBar().setValue(0)
             
             # 重新计算滚动区域，确保所有行可见
-            QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+            QTimer.singleShot(200, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
             
-            # 再次检查最后一行是否可见
-            QTimer.singleShot(300, self.scroll_to_bottom_check)
+            # 再次检查最后一行是否可见，增加延迟以确保渲染完成
+            QTimer.singleShot(500, self.scroll_to_bottom_check)
     
     def go_to_next_page(self):
         """转到下一页"""
@@ -3902,10 +3919,10 @@ class DictSearchDialog(QDialog):
             self.table_widget.verticalScrollBar().setValue(0)
             
             # 重新计算滚动区域，确保所有行可见
-            QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+            QTimer.singleShot(200, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
             
-            # 再次检查最后一行是否可见
-            QTimer.singleShot(300, self.scroll_to_bottom_check)
+            # 再次检查最后一行是否可见，增加延迟以确保渲染完成
+            QTimer.singleShot(500, self.scroll_to_bottom_check)
     
     def go_to_first_page(self):
         """转到第一页"""
@@ -3918,10 +3935,10 @@ class DictSearchDialog(QDialog):
             self.table_widget.verticalScrollBar().setValue(0)
             
             # 重新计算滚动区域，确保所有行可见
-            QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+            QTimer.singleShot(200, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
             
-            # 再次检查最后一行是否可见
-            QTimer.singleShot(300, self.scroll_to_bottom_check)
+            # 再次检查最后一行是否可见，增加延迟以确保渲染完成
+            QTimer.singleShot(500, self.scroll_to_bottom_check)
     
     def go_to_last_page(self):
         """转到最后一页"""
@@ -3935,10 +3952,10 @@ class DictSearchDialog(QDialog):
             self.table_widget.verticalScrollBar().setValue(0)
             
             # 重新计算滚动区域，确保所有行可见
-            QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+            QTimer.singleShot(200, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
             
-            # 再次检查最后一行是否可见
-            QTimer.singleShot(300, self.scroll_to_bottom_check)
+            # 再次检查最后一行是否可见，增加延迟以确保渲染完成
+            QTimer.singleShot(500, self.scroll_to_bottom_check)
     
     def on_page_size_changed(self, text):
         """处理每页显示条数变化"""
@@ -3953,10 +3970,10 @@ class DictSearchDialog(QDialog):
                 self.table_widget.verticalScrollBar().setValue(0)
                 
                 # 重新计算滚动区域，确保所有行可见
-                QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+                QTimer.singleShot(200, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
                 
-                # 再次检查最后一行是否可见
-                QTimer.singleShot(300, self.scroll_to_bottom_check)
+                # 再次检查最后一行是否可见，增加延迟以确保渲染完成
+                QTimer.singleShot(500, self.scroll_to_bottom_check)
                 
                 # 保存设置到配置文件
                 config = self.parent.load_config() or {}  # 确保config不为None
@@ -4034,10 +4051,10 @@ class DictSearchDialog(QDialog):
         self.table_widget.verticalScrollBar().setValue(0)
         
         # 重新计算滚动区域，确保所有行可见
-        QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+        QTimer.singleShot(200, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
         
         # 再次检查最后一行是否可见
-        QTimer.singleShot(300, self.scroll_to_bottom_check)
+        QTimer.singleShot(400, self.scroll_to_bottom_check)
     
     def display_current_page(self):
         """显示当前页的词条"""
@@ -4134,7 +4151,7 @@ class DictSearchDialog(QDialog):
             
             # 行高将由代理自动处理
             
-            # 添加读音（使用富文本高亮匹配的关键词）
+            # 添加读音/前缀/后缀（使用富文本高亮匹配的关键词）
             readings = entry['readings']
             readings_lower = readings.lower()
             highlighted_readings = readings
@@ -4207,9 +4224,15 @@ class DictSearchDialog(QDialog):
         
         # 设置表格外观
         self.setup_table_appearance()
-    
+        
+        # 确保新页面所有行可见，特别是最后一行
+        QTimer.singleShot(200, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+        
+        # 确保滚动条能滚动到底部，增加延迟以确保渲染完成
+        QTimer.singleShot(500, self.scroll_to_bottom_check)
+        
     def ensure_all_rows_visible(self, rows_count):
-        """确保所有行都可见，包括最后一行，但减少底部额外空间"""
+        """确保所有行都可见，包括最后一行，但不添加多余的底部空间"""
         if rows_count == 0:
             return
             
@@ -4238,9 +4261,8 @@ class DictSearchDialog(QDialog):
                 # 对于不存在的行，使用默认高度
                 total_row_height += 38
             
-        # 添加足够的额外空间，确保最后一行完全可见
-        # 增加额外空间以考虑换行文本
-        padding = 40  # 增加更多的底部空间
+        # 添加最小的额外空间，只确保最后一行完全可见
+        padding = 5  # 减小到极小的值
         
         # 计算表格内容区域的总高度
         content_height = header_height + total_row_height + padding
@@ -4248,28 +4270,36 @@ class DictSearchDialog(QDialog):
         # 调整表格垂直滚动条的范围
         vsb = self.table_widget.verticalScrollBar()
         if vsb:
-            # 计算足够大的值，确保能够滚动到最后一行
-            max_value = content_height - self.table_widget.viewport().height()
+            # 计算值，确保能够滚动到最后一行并显示完整
+            # 获取最后一行的高度，添加到计算中
+            last_row_height = 0
+            if rows_count > 0 and rows_count <= self.table_widget.rowCount():
+                last_row_height = self.table_widget.rowHeight(rows_count - 1)
+            else:
+                last_row_height = 38  # 默认高度
+                
+            # 增加额外空间以确保最后一行一定可见
+            extra_buffer = 15  # 额外的缓冲区，以确保绝对可见
+            max_value = content_height - self.table_widget.viewport().height() + last_row_height + extra_buffer
             if max_value < 0:
                 max_value = 0
                 
-            # 给最大值添加一个额外的行高，确保最后一行可见
-            max_value += 50  # 额外添加更多空间
-                
-            # 设置滚动范围
+            # 设置滚动范围，确保最后一行可完全显示
             vsb.setMaximum(max_value)
             
-        # 通过定时器延迟执行滚动到底部的操作
-        QTimer.singleShot(100, self.scroll_to_bottom_check)
+                    # 通过定时器延迟执行滚动到底部的操作，确保正确设置滚动范围
+        # 增加延迟时间，确保界面完全更新后再调整滚动条
+        QTimer.singleShot(200, self.scroll_to_bottom_check)
     
     def scroll_to_bottom_check(self):
-        """确保可以滚动到底部，确保最后一行完全可见"""
+        """确保可以滚动到底部，确保最后一行完全可见，但不留太多空白"""
         rows = self.table_widget.rowCount()
         if rows <= 0:
             return
-        
+            
         # 获取最后一行
-        last_item = self.table_widget.item(rows - 1, 0)
+        last_row_index = rows - 1
+        last_item = self.table_widget.item(last_row_index, 0)
         if not last_item:
             return
             
@@ -4278,34 +4308,63 @@ class DictSearchDialog(QDialog):
         if not vsb:
             return
             
+        # 计算所有行的总高度
+        total_height = 0
+        for i in range(rows):
+            total_height += self.table_widget.rowHeight(i)
+            
+        # 添加最小额外空间确保滚动条可以显示到最后一行，但不超出
+        viewport_height = self.table_widget.viewport().height()
+        header_height = self.table_widget.horizontalHeader().height()
+        
+        # 计算滚动条最大值，确保最后一行完全可见
+        # 这里加上最后一行的完整行高，确保最后一行完全显示
+        last_row_height = self.table_widget.rowHeight(rows - 1) if rows > 0 else 38
+        
+        # 增加额外空间确保最后一行一定可见（之前可能有丢失一行的问题）
+        extra_buffer = 15  # 额外的缓冲区，以确保绝对可见
+        precise_max = total_height + header_height - viewport_height + last_row_height + extra_buffer
+        if precise_max < 0:
+            precise_max = 0
+            
+        vsb.setMaximum(precise_max)
+            
         # 记住当前滚动位置
         current_pos = vsb.value()
         
         # 临时滚动到底部，检查最后一行是否可见
-        self.table_widget.scrollToItem(last_item, QTableWidget.PositionAtBottom)
+        # 使用EnsureVisible确保项目一定可见
+        self.table_widget.scrollToItem(last_item, QTableWidget.EnsureVisible)
         
         # 获取最后一行的位置和大小
         last_row_rect = self.table_widget.visualItemRect(last_item)
         viewport_rect = self.table_widget.viewport().rect()
         
-        # 强制确保最后一行完全可见，添加足够的空间
+        # 强制确保最后一行完全可见
         if not viewport_rect.contains(last_row_rect.bottomRight()):
             # 计算需要额外增加的空间，确保最后一行完全可见
-            extra_space = last_row_rect.bottom() - viewport_rect.bottom() + 20  # 增加20像素确保可见
+            extra_space = last_row_rect.bottom() - viewport_rect.bottom() + 20  # 增加足够的空间
             
             # 调整滚动条最大值
-            new_max = vsb.maximum() + extra_space + last_row_rect.height()
-            vsb.setMaximum(new_max)
+            vsb.setMaximum(vsb.maximum() + extra_space)
             
             # 再次尝试滚动到底部查看是否可见
             self.table_widget.scrollToItem(last_item, QTableWidget.PositionAtBottom)
             
-            # 如果还是不可见，再增加空间
+            # 如果还是不可见，增加更多空间
             last_row_rect = self.table_widget.visualItemRect(last_item)
             viewport_rect = self.table_widget.viewport().rect()
             if not viewport_rect.contains(last_row_rect.bottomRight()):
-                vsb.setMaximum(vsb.maximum() + last_row_rect.height() + 50)
-        
+                # 确保完全可见，多增加一些空间
+                exact_needed_space = last_row_rect.bottom() - viewport_rect.bottom() + 20
+                vsb.setMaximum(vsb.maximum() + exact_needed_space)
+                
+                # 最后检查一次
+                self.table_widget.scrollToItem(last_item, QTableWidget.PositionAtBottom)
+                if not viewport_rect.contains(last_row_rect.bottomRight()):
+                    # 如果还是不可见，增加更多空间确保显示
+                    vsb.setMaximum(vsb.maximum() + last_row_rect.height())
+                
         # 恢复原始滚动位置
         vsb.setValue(current_pos)
                 
