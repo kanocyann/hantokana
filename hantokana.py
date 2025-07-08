@@ -2459,7 +2459,6 @@ class MainWindow(QMainWindow):
             # 先进行正常分词
             words = self.tagger(raw)
             
-
             
             # 使用集合来跟踪已处理的词，避免重复
             processed_words = set()
@@ -2502,13 +2501,6 @@ class MainWindow(QMainWindow):
 
                             continue
                         
-                        # 检查是否是常见的助词+指示词组合（前缀模式）
-                        if current_word in suffix_combinations and next_word in suffix_combinations[current_word]:
-                            word = current_word + next_word
-                            i += 2
-
-                            continue
-                        
                         # 另一种检查前缀组合的方式 - 直接遍历前缀组合词典
                         found_prefix = False
                         for prefix, targets in prefix_combinations.items():
@@ -2528,6 +2520,73 @@ class MainWindow(QMainWindow):
                                 break
                         
                         if found_prefix:
+                            continue
+                        
+                        # 检查后缀组合 - 词汇+助词的形式
+                        found_suffix = False
+                        for word_base, particles in suffix_combinations.items():
+                            if current_word == word_base and next_word in particles:
+                                word = current_word + next_word
+                                i += 2
+                                
+                                # 如果这个词已经处理过，跳过
+                                if word in processed_words:
+                                    found_suffix = True
+                                    break
+                                
+                                processed_words.add(word)
+                                
+                                # 优先使用自定义词典
+                                readings = self.custom_dict["normal_words"].get(word) or self.custom_dict["compound_words"].get(word)
+                                
+                                if not readings:
+                                    # 使用pykakasi转换
+                                    converted = self.conv.convert(word)
+                                    if converted:
+                                        # 提取读音（假名形式）
+                                        reading = ''.join([item.get('hira', item.get('orig', '')) for item in converted])
+                                        if reading:
+                                            readings = [reading]
+                                
+                                # 处理所有读音
+                                if readings:
+                                    line = f"[{word}]"
+                                    
+                                    if self.use_hira.isChecked():
+                                        # 平假名：先统一转换为平假名
+                                        hira_readings = []
+                                        for reading in readings:
+                                            # 如果是片假名，先转换为平假名
+                                            hira_reading = jaconv.kata2hira(reading)
+                                            hira_readings.append(hira_reading)
+                                        line += f" → [{', '.join(hira_readings)}]"
+                                    
+                                    if self.use_kata.isChecked():
+                                        # 片假名：先统一转换为平假名，再转换为片假名
+                                        kata_readings = []
+                                        for reading in readings:
+                                            # 先统一转换为平假名，再转换为片假名
+                                            hira_reading = jaconv.kata2hira(reading)
+                                            kata_reading = jaconv.hira2kata(hira_reading)
+                                            kata_readings.append(kata_reading)
+                                        line += f" → [{', '.join(kata_readings)}]"
+                                    
+                                    if self.use_roma.isChecked():
+                                        # 罗马音：先统一转换为平假名，再转换为罗马音
+                                        roma_readings = []
+                                        for reading in readings:
+                                            # 先统一转换为平假名
+                                            hira_reading = jaconv.kata2hira(reading)
+                                            roma_reading = self.convert_to_romaji(hira_reading)
+                                            roma_readings.append(roma_reading)
+                                        line += f" → [{', '.join(roma_readings)}]"
+                                    
+                                    result += line + "\n"
+                                
+                                found_suffix = True
+                                break
+                        
+                        if found_suffix:
                             continue
                         
                         # 检查当前词是否以促音结尾
