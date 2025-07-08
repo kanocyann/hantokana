@@ -8,11 +8,13 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QFrame, QStyleFactory, QTableWidget, QTableWidgetItem, QHeaderView,
                              QSizePolicy, QComboBox, QStyledItemDelegate)
 from PySide6.QtCore import Qt, QUrl, QRect, QSize, QTimer
-from PySide6.QtGui import QIcon, QAction, QFont, QPixmap, QDesktopServices, QPainter, QPen, QColor, QKeySequence, QShortcut
+from PySide6.QtGui import (QIcon, QAction, QFont, QPixmap, QDesktopServices, QPainter, 
+                          QPen, QColor, QKeySequence, QShortcut, QFontMetrics)
 import jaconv
 import pykakasi
 from fugashi import Tagger
 from PySide6.QtCore import QMimeData
+import re
 
 # 高清支持
 windll.shcore.SetProcessDpiAwareness(1)
@@ -1388,17 +1390,27 @@ class DictEditDialog(QDialog):
     def show_context_menu(self, position):
         """显示右键菜单"""
         menu = QMenu()
-        copy_action = menu.addAction("复制")
-        edit_action = menu.addAction("编辑")
-        delete_action = menu.addAction("删除")
         
-        action = menu.exec_(self.list_widget.mapToGlobal(position))
-        if action == copy_action:
-            self.copy_selected()
-        elif action == edit_action:
-            self.edit_entry()
-        elif action == delete_action:
-            self.delete_selected()
+        # 获取右键点击的单元格位置
+        item = self.table_widget.itemAt(position)
+        if item:
+            row = self.table_widget.row(item)
+            column = self.table_widget.column(item)
+            
+            # 添加编辑选项
+            edit_action = menu.addAction("编辑")
+            edit_action.triggered.connect(lambda: self.on_cell_double_clicked(row, column))
+            
+            # 添加复制选项
+            menu.addSeparator()
+            copy_action = menu.addAction("复制")
+            copy_action.triggered.connect(self.copy_selection)
+        else:
+            # 如果没有选中单元格，只显示复制选项
+            copy_action = menu.addAction("复制")
+            copy_action.triggered.connect(self.copy_selection)
+        
+        menu.exec_(self.table_widget.viewport().mapToGlobal(position))
     
     def copy_selected(self):
         """复制选中的词条"""
@@ -2911,12 +2923,31 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 CustomMessageBox(self, "错误", f"导入词典时发生错误: {e}", style='error').exec()
     
-    def open_edit_dict_window(self, word_type):
-        """打开词典编辑窗口"""
+    def open_edit_dict_window(self, word_type, target_word=None):
+        """打开词典编辑窗口
+        
+        Args:
+            word_type: 词典类型
+            target_word: 可选，需要定位的词条
+        """
         dialog = DictEditDialog(self, word_type, self.custom_dict)
         # 设置窗口图标
         icon_path = self.resource_path("icon.ico")
         dialog.setWindowIcon(QIcon(icon_path))
+        
+        # 如果指定了目标词条，尝试定位
+        if target_word:
+            # 查找并选择目标词条
+            for i in range(dialog.list_widget.count()):
+                item = dialog.list_widget.item(i)
+                if item.text().startswith(f"{target_word} →"):
+                    dialog.list_widget.setCurrentItem(item)
+                    # 滚动到该项
+                    dialog.list_widget.scrollToItem(item)
+                    # 自动填充到编辑框
+                    dialog.edit_entry()
+                    break
+        
         if dialog.exec() == QDialog.Accepted:
             # 更新主窗口的词典数据
             self.custom_dict = dialog.custom_dict
@@ -3307,7 +3338,7 @@ class DictSearchDialog(QDialog):
         search_layout.setSpacing(8)
         search_layout.setContentsMargins(12, 12, 12, 12)
         
-        # 搜索输入框和提示
+        # 搜索输入框和提示（放在同一行）
         search_input_layout = QHBoxLayout()
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("输入关键词搜索词典（用空格分隔多个关键词）...")
@@ -3597,6 +3628,9 @@ class DictSearchDialog(QDialog):
         # 设置复制快捷键
         copy_shortcut = QShortcut(QKeySequence.Copy, self.table_widget)
         copy_shortcut.activated.connect(self.copy_selection)
+        
+        # 连接双击信号
+        self.table_widget.cellDoubleClicked.connect(self.on_cell_double_clicked)
         
         # 应用自定义代理来支持文本换行
         word_wrap_delegate = WordWrapDelegate(self.table_widget)
@@ -4074,8 +4108,10 @@ class DictSearchDialog(QDialog):
         # 确保设置足够的行数，即使是空行也需要
         self.table_widget.setRowCount(actual_rows)
         
-        # 确保表格最后有足够空间显示所有行
-        self.ensure_all_rows_visible(actual_rows)
+        # 先设置所有行为默认行高，后面只对需要的行进行调整
+        default_height = 42
+        for i in range(actual_rows):
+            self.table_widget.setRowHeight(i, default_height)
         
         # 获取搜索关键词
         search_text = self.search_edit.text().strip().lower()
@@ -4225,10 +4261,7 @@ class DictSearchDialog(QDialog):
         # 设置表格外观
         self.setup_table_appearance()
         
-        # 确保新页面所有行可见，特别是最后一行
-        QTimer.singleShot(200, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
-        
-        # 确保滚动条能滚动到底部，增加延迟以确保渲染完成
+        # 只检查滚动条，不强制调整所有行高
         QTimer.singleShot(500, self.scroll_to_bottom_check)
         
     def ensure_all_rows_visible(self, rows_count):
@@ -4241,25 +4274,37 @@ class DictSearchDialog(QDialog):
         total_row_height = 0
         
         # 为每一行设置足够的行高，以适应文本换行
+        default_height = 42  # 默认行高
+        
         for i in range(rows_count):
             if i < self.table_widget.rowCount():
                 # 获取每列的单元格内容，计算所需行高
-                max_height = 38  # 默认最小行高
+                needs_stretch = False
+                max_height = default_height
                 
                 for col in range(3):  # 三列：词条、读音和类型
                     cell_widget = self.table_widget.cellWidget(i, col)
                     if cell_widget and isinstance(cell_widget, QLabel):
                         # 获取标签内容所需的高度
                         cell_widget.adjustSize()
-                        widget_height = cell_widget.height() + 14  # 增加一些内边距
-                        max_height = max(max_height, widget_height)
+                        content_height = cell_widget.height() + 12  # 增加一些内边距
+                        
+                        # 只有当内容高度超过默认高度时才拉伸
+                        if content_height > default_height:
+                            needs_stretch = True
+                            max_height = max(max_height, content_height)
                 
-                # 设置行高为所有单元格中最大的高度
-                self.table_widget.setRowHeight(i, max_height)
-                total_row_height += max_height
+                # 只有需要拉伸的行才设置更大的行高
+                if needs_stretch:
+                    self.table_widget.setRowHeight(i, max_height)
+                    total_row_height += max_height
+                else:
+                    # 使用默认行高
+                    self.table_widget.setRowHeight(i, default_height)
+                    total_row_height += default_height
             else:
                 # 对于不存在的行，使用默认高度
-                total_row_height += 38
+                total_row_height += default_height
             
         # 添加最小的额外空间，只确保最后一行完全可见
         padding = 5  # 减小到极小的值
@@ -4319,7 +4364,7 @@ class DictSearchDialog(QDialog):
         
         # 计算滚动条最大值，确保最后一行完全可见
         # 这里加上最后一行的完整行高，确保最后一行完全显示
-        last_row_height = self.table_widget.rowHeight(rows - 1) if rows > 0 else 38
+        last_row_height = self.table_widget.rowHeight(rows - 1) if rows > 0 else 42  # 更新默认行高
         
         # 增加额外空间确保最后一行一定可见（之前可能有丢失一行的问题）
         extra_buffer = 15  # 额外的缓冲区，以确保绝对可见
@@ -4609,8 +4654,25 @@ class DictSearchDialog(QDialog):
     def show_context_menu(self, position):
         """显示右键菜单"""
         menu = QMenu(self)
-        copy_action = menu.addAction("复制")
-        copy_action.triggered.connect(self.copy_selection)
+        
+        # 获取右键点击的单元格位置
+        item = self.table_widget.itemAt(position)
+        if item:
+            row = self.table_widget.row(item)
+            column = self.table_widget.column(item)
+            
+            # 添加编辑选项
+            edit_action = menu.addAction("编辑")
+            edit_action.triggered.connect(lambda: self.on_cell_double_clicked(row, column))
+            
+            # 添加复制选项
+            menu.addSeparator()
+            copy_action = menu.addAction("复制")
+            copy_action.triggered.connect(self.copy_selection)
+        else:
+            # 如果没有选中单元格，只显示复制选项
+            copy_action = menu.addAction("复制")
+            copy_action.triggered.connect(self.copy_selection)
         
         menu.exec_(self.table_widget.viewport().mapToGlobal(position))
     
@@ -4640,10 +4702,16 @@ class DictSearchDialog(QDialog):
                 cell_widget = self.table_widget.cellWidget(row, col)
                 if cell_widget and isinstance(cell_widget, QLabel):
                     # 从QLabel获取纯文本（去除HTML标签）
-                    text = cell_widget.text()
-                    # 移除HTML标签
-                    text = text.replace(r'<span style="background-color: #FFFF00;">', '')
-                    text = text.replace('</span>', '')
+                    if isinstance(cell_widget, CenteredLabel):
+                        # 使用get_plain_text方法获取纯文本内容
+                        text = cell_widget.get_plain_text()
+                    else:
+                        text = cell_widget.text()
+                        # 移除HTML标签
+                        text = text.replace(r'<span style="background-color: #FFFF00;">', '')
+                        text = text.replace('</span>', '')
+                        text = text.replace('<div align="center" style="text-align:center; width:100%;">', '')
+                        text = text.replace('</div>', '')
                     row_texts.append(text)
                 else:
                     # 常规单元格项处理
@@ -4735,29 +4803,32 @@ class DictSearchDialog(QDialog):
 
     def create_rich_text_label(self, html_content):
         """创建富文本标签用于显示高亮文本"""
-        label = QLabel()
-        label.setTextFormat(Qt.RichText)
-        label.setAlignment(Qt.AlignCenter)
-        label.setText(html_content)
-        label.setStyleSheet("""
-            QLabel {
-                background: transparent;
-                padding: 4px;
-                border: none;
-                margin: 0;
-                font-size: 13px;
-                color: #333333;
-            }
-        """)
-        # 确保标签完全填充单元格
-        label.setMinimumHeight(28)
-        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # 启用文本换行
-        label.setWordWrap(True)
+        return CenteredLabel(html_content, self)
+
+    def on_cell_double_clicked(self, row, column):
+        """处理单元格双击事件"""
+        # 获取当前页的起始索引
+        start_idx = (self.current_page - 1) * self.entries_per_page
         
-        # 自动调整高度以适应内容
-        label.adjustSize()
-        return label
+        # 确保索引有效
+        if 0 <= row < len(self.filtered_entries) and start_idx + row < len(self.filtered_entries):
+            # 获取双击的词条
+            entry = self.filtered_entries[start_idx + row]
+            entry_type = entry['type']
+            word = entry['word']  # 获取词条文本
+            
+            # 类型映射
+            type_mapping = {
+                "普通词": "normal_words",
+                "复合词": "compound_words",
+                "前缀组合": "prefix_combinations",
+                "后缀组合": "common_combinations"
+            }
+            
+            # 如果类型有效，打开对应的编辑窗口
+            if entry_type in type_mapping:
+                word_type = type_mapping[entry_type]
+                self.parent.open_edit_dict_window(word_type, word)  # 传递词条文本
 
 class WordWrapDelegate(QStyledItemDelegate):
     """自定义表格项代理，处理文本换行"""
@@ -4802,20 +4873,86 @@ class WordWrapDelegate(QStyledItemDelegate):
         if not text:
             return super().sizeHint(option, index)
         
+        # 默认行高
+        default_height = 42
+        
         # 计算文本宽度
         rect = option.rect
-        width = rect.width() - 20  # 减去一些padding
+        width = rect.width() - 20
         
         # 计算需要的高度
         fm = option.fontMetrics
         text_rect = fm.boundingRect(0, 0, width, 2000, Qt.TextWordWrap | Qt.AlignCenter, text)
-        height = max(38, text_rect.height() + 14)  # 设置最小高度为38，加上padding
+        text_height = text_rect.height() + 12
         
-        return QSize(rect.width(), height)
+        # 只有当内容确实需要更多空间时才返回更大的高度
+        if text_height > default_height:
+            return QSize(rect.width(), text_height)
+        else:
+            return QSize(rect.width(), default_height)
 
     def createEditor(self, parent, option, index):
         """禁止编辑，确保只读状态"""
         return None
+
+class CenteredLabel(QLabel):
+    """自定义标签类，确保文本始终居中显示"""
+    def __init__(self, html_content="", parent=None):
+        super().__init__(parent)
+        
+        # 保存原始内容
+        self.original_content = html_content
+        
+        # 在HTML内容中直接添加居中样式
+        centered_html = f'<div align="center" style="text-align:center; width:100%;">{html_content}</div>'
+        
+        self.setTextFormat(Qt.RichText)
+        self.setAlignment(Qt.AlignCenter)
+        self.setText(centered_html)
+        self.setStyleSheet("""
+            background: transparent;
+            padding: 4px;
+            border: none;
+            margin: 0;
+            font-size: 13px;
+            color: #333333;
+            text-align: center;
+            qproperty-alignment: AlignCenter;
+        """)
+        
+        # 设置适当的策略
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        
+        # 启用文本换行
+        self.setWordWrap(True)
+        
+        # 计算内容所需高度
+        self.adjustHeight(html_content)
+    
+    def get_plain_text(self):
+        """获取不包含HTML标签的纯文本内容"""
+        # 使用正则表达式去除所有HTML标签
+        return re.sub(r'<[^>]*>', '', self.original_content)
+    
+    def adjustHeight(self, html_content):
+        """调整标签高度以适应内容"""
+        # 计算内容所需高度
+        font_metrics = QFontMetrics(self.font())
+        text = html_content.replace(r'<span style="background-color: #FFFF00;">', '').replace('</span>', '')
+        text_width = self.width() - 20  # 减去一些padding
+        if text_width <= 0:
+            text_width = 200  # 默认宽度估计
+            
+        # 只有当内容确实需要更多空间时才设置更大的高度
+        text_height = font_metrics.boundingRect(0, 0, text_width, 2000, Qt.TextWordWrap | Qt.AlignCenter, text).height()
+        if text_height > 30:  # 只有当内容高度超过基本高度时才调整
+            self.setMinimumHeight(text_height + 10)  # 添加一些padding
+    
+    def resizeEvent(self, event):
+        """重写大小变化事件，确保调整大小后文本仍然居中"""
+        super().resizeEvent(event)
+        # 重新设置对齐方式
+        self.setAlignment(Qt.AlignCenter)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
