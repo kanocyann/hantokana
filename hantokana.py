@@ -1006,10 +1006,10 @@ class DictEditDialog(QDialog):
             title = "复合词"
         elif word_type == "normal_words":
             title = "普通词"
-        elif word_type == "common_combinations":
-            title = "常见后缀组合"
         elif word_type == "prefix_combinations":
             title = "常见前缀组合"
+        elif word_type == "suffix_combinations":
+            title = "常见后缀组合"
         else:
             title = "自定义"
             
@@ -1060,10 +1060,10 @@ class DictEditDialog(QDialog):
         # 添加标签，去掉底框线
         if word_type == 'compound_words':
             label_text = '复合词'
-        elif word_type == 'common_combinations':
-            label_text = '词汇 (后接助词)'
         elif word_type == 'prefix_combinations':
             label_text = '助词 (前接词汇)'
+        elif word_type == 'suffix_combinations':
+            label_text = '词汇 (后接助词)'
         else:
             label_text = '汉字'
         word_label = QLabel(label_text)
@@ -1082,10 +1082,10 @@ class DictEditDialog(QDialog):
         self.kanji_edit = QLineEdit()
         if word_type == 'compound_words':
             self.kanji_edit.setPlaceholderText("请输入复合词")
-        elif word_type == 'common_combinations':
-            self.kanji_edit.setPlaceholderText("请输入词汇 (如: それ、これ等)")
         elif word_type == 'prefix_combinations':
             self.kanji_edit.setPlaceholderText("请输入助词 (如: まで、から等)")
+        elif word_type == 'suffix_combinations':
+            self.kanji_edit.setPlaceholderText("请输入词汇 (如: それ、これ等)")
         else:
             self.kanji_edit.setPlaceholderText("请输入汉字或词汇")
         self.kanji_edit.setStyleSheet("""
@@ -1105,7 +1105,7 @@ class DictEditDialog(QDialog):
         input_layout.addWidget(self.kanji_edit)
         
         # 添加标签，去掉底框线
-        if word_type == 'common_combinations':
+        if word_type == 'suffix_combinations':
             self.reading_label = QLabel("对应助词 (用逗号间隔)")
         elif word_type == 'prefix_combinations':
             self.reading_label = QLabel("对应词汇 (用逗号间隔)")
@@ -1125,7 +1125,7 @@ class DictEditDialog(QDialog):
         input_layout.addWidget(self.reading_label)
         
         self.readings_edit = QLineEdit()
-        if word_type == 'common_combinations':
+        if word_type == 'suffix_combinations':
             self.readings_edit.setPlaceholderText("请输入助词，多个助词用逗号分隔")
         elif word_type == 'prefix_combinations':
             self.readings_edit.setPlaceholderText("请输入词汇，多个词汇用逗号分隔")
@@ -1438,7 +1438,7 @@ class DictEditDialog(QDialog):
             
         word_dict = self.custom_dict[self.word_type]
         
-        if self.word_type == "common_combinations" or self.word_type == "prefix_combinations":
+        if self.word_type == "prefix_combinations" or self.word_type == "suffix_combinations":
             # 组合词典的显示方式
             for word, particles in sorted(word_dict.items()):
                 self.list_widget.addItem(f"{word} → {', '.join(particles)}")
@@ -1792,8 +1792,8 @@ class MainWindow(QMainWindow):
         self.custom_dict = {
             "normal_words": {},
             "compound_words": {},
-            "common_combinations": {},
-            "prefix_combinations": {}
+            "prefix_combinations": {},
+            "suffix_combinations": {}
         }
         self.current_dict_path = None
         self.tagger = None
@@ -2140,6 +2140,8 @@ class MainWindow(QMainWindow):
         import_action = QAction("导入词典", self)
         import_action.triggered.connect(self.load_dict)
         file_menu.addAction(import_action)
+
+        file_menu.addSeparator()
         
         edit_normal_action = QAction("编辑普通词词典", self)
         edit_normal_action.triggered.connect(lambda: self.open_edit_dict_window("normal_words"))
@@ -2154,7 +2156,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(edit_prefix_combinations_action)
         
         edit_combinations_action = QAction("编辑后缀组合词典", self)
-        edit_combinations_action.triggered.connect(lambda: self.open_edit_dict_window("common_combinations"))
+        edit_combinations_action.triggered.connect(lambda: self.open_edit_dict_window("suffix_combinations"))
         file_menu.addAction(edit_combinations_action)
         
         file_menu.addSeparator()
@@ -2214,8 +2216,9 @@ class MainWindow(QMainWindow):
                         json.dump({
                             "normal_words": {},
                             "compound_words": {},
-                            "common_combinations": {},
-                            "prefix_combinations": {}
+                            "prefix_combinations": {},
+                            "suffix_combinations": {}
+
                         }, f, ensure_ascii=False, indent=2)
             except Exception as e:
                 print(f"初始化字典文件失败: {str(e)}")
@@ -2229,10 +2232,10 @@ class MainWindow(QMainWindow):
                 self.custom_dict["normal_words"] = {}
             if "compound_words" not in self.custom_dict:
                 self.custom_dict["compound_words"] = {}
-            if "common_combinations" not in self.custom_dict:
-                self.custom_dict["common_combinations"] = {}
             if "prefix_combinations" not in self.custom_dict:
                 self.custom_dict["prefix_combinations"] = {}
+            if "suffix_combinations" not in self.custom_dict:
+                self.custom_dict["suffix_combinations"] = {}
                 
             self.current_dict_path = custom_dict_path
         except Exception as e:
@@ -2240,8 +2243,8 @@ class MainWindow(QMainWindow):
             self.custom_dict = {
                 "normal_words": {},
                 "compound_words": {},
-                "common_combinations": {},
-                "prefix_combinations": {}
+                "prefix_combinations": {},
+                "suffix_combinations": {}
             }
     
     def save_custom_dict(self):
@@ -2472,8 +2475,9 @@ class MainWindow(QMainWindow):
             
             # 从自定义词典中获取指示词和助词组合
             # 使用get方法确保即使词典中没有这个键也能返回空字典
-            common_combinations = self.custom_dict.get("common_combinations", {})
             prefix_combinations = self.custom_dict.get("prefix_combinations", {})
+            suffix_combinations = self.custom_dict.get("suffix_combinations", {})
+
             
             
             i = 0
@@ -2492,14 +2496,14 @@ class MainWindow(QMainWindow):
                         next_word = words[i + 1].surface
                         
                         # 检查是否是常见的指示词+助词组合（后缀模式）
-                        if current_word in common_combinations and next_word in common_combinations[current_word]:
+                        if current_word in prefix_combinations and next_word in prefix_combinations[current_word]:
                             word = current_word + next_word
                             i += 2
 
                             continue
                         
                         # 检查是否是常见的助词+指示词组合（前缀模式）
-                        if current_word in prefix_combinations and next_word in prefix_combinations[current_word]:
+                        if current_word in suffix_combinations and next_word in suffix_combinations[current_word]:
                             word = current_word + next_word
                             i += 2
 
@@ -2877,22 +2881,22 @@ class MainWindow(QMainWindow):
                     self.custom_dict["normal_words"] = {**self.custom_dict["normal_words"], **new_dict.get("normal_words", {})}
                     self.custom_dict["compound_words"] = {**self.custom_dict["compound_words"], **new_dict.get("compound_words", {})}
                     
-                    # 合并common_combinations
-                    if "common_combinations" in new_dict:
-                        # 确保custom_dict中有common_combinations键
-                        if "common_combinations" not in self.custom_dict:
-                            self.custom_dict["common_combinations"] = {}
+                    # 合并suffix_combinations
+                    if "suffix_combinations" in new_dict:
+                        # 确保custom_dict中有suffix_combinations键
+                        if "suffix_combinations" not in self.custom_dict:
+                            self.custom_dict["suffix_combinations"] = {}
                             
-                        # 合并common_combinations字典
-                        for word, particles in new_dict["common_combinations"].items():
-                            if word in self.custom_dict["common_combinations"]:
+                        # 合并suffix_combinations字典
+                        for word, particles in new_dict["suffix_combinations"].items():
+                            if word in self.custom_dict["suffix_combinations"]:
                                 # 如果单词已存在，合并助词列表（去重）
-                                existing_particles = set(self.custom_dict["common_combinations"][word])
+                                existing_particles = set(self.custom_dict["suffix_combinations"][word])
                                 new_particles = set(particles)
-                                self.custom_dict["common_combinations"][word] = list(existing_particles.union(new_particles))
+                                self.custom_dict["suffix_combinations"][word] = list(existing_particles.union(new_particles))
                             else:
                                 # 如果单词不存在，直接添加
-                                self.custom_dict["common_combinations"][word] = particles
+                                self.custom_dict["suffix_combinations"][word] = particles
                     
                     # 合并prefix_combinations
                     if "prefix_combinations" in new_dict:
@@ -4718,15 +4722,6 @@ class DictSearchDialog(QDialog):
                 'type': "复合词"
             })
         
-        # 加载后缀组合
-        for word, particles in custom_dict.get("common_combinations", {}).items():
-            particles_text = ", ".join(particles) if isinstance(particles, list) else str(particles)
-            self.all_entries.append({
-                'word': word,
-                'readings': particles_text,
-                'type': "后缀组合"
-            })
-        
         # 加载前缀组合
         for word, targets in custom_dict.get("prefix_combinations", {}).items():
             targets_text = ", ".join(targets) if isinstance(targets, list) else str(targets)
@@ -4735,6 +4730,16 @@ class DictSearchDialog(QDialog):
                 'readings': targets_text,
                 'type': "前缀组合"
             })
+
+        # 加载后缀组合
+        for word, particles in custom_dict.get("suffix_combinations", {}).items():
+            particles_text = ", ".join(particles) if isinstance(particles, list) else str(particles)
+            self.all_entries.append({
+                'word': word,
+                'readings': particles_text,
+                'type': "后缀组合"
+            })
+        
         
         # 按词条排序
         self.all_entries.sort(key=lambda x: x['word'])
@@ -4784,7 +4789,7 @@ class DictSearchDialog(QDialog):
                 "普通词": "normal_words",
                 "复合词": "compound_words",
                 "前缀组合": "prefix_combinations",
-                "后缀组合": "common_combinations"
+                "后缀组合": "suffix_combinations"
             }
             
             # 如果类型有效，打开对应的编辑窗口
