@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QTextEdit, QPushButton, QCheckBox, QLabel, QDialog,
                               QFileDialog, QMenu, QListWidget, QLineEdit, 
                              QFrame, QStyleFactory, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QSizePolicy)
+                             QSizePolicy, QComboBox, QStyledItemDelegate)
 from PySide6.QtCore import Qt, QUrl, QRect, QSize, QTimer
 from PySide6.QtGui import QIcon, QAction, QFont, QPixmap, QDesktopServices, QPainter, QPen, QColor, QKeySequence, QShortcut
 import jaconv
@@ -2170,6 +2170,7 @@ class MainWindow(QMainWindow):
     
     def load_config(self):
         """加载配置"""
+        config = {}
         try:
             if os.path.exists(self.get_config_path()):
                 with open(self.get_config_path(), 'r', encoding='utf-8') as f:
@@ -2179,6 +2180,7 @@ class MainWindow(QMainWindow):
             print(f"加载配置时出错: {e}")
             # 如果加载失败，使用默认配置
             self.current_dict_path = self.resource_path("dictionary.txt")
+        return config  # 始终返回一个字典，即使是空的
     
     def load_custom_dict(self):
         """加载自定义词典"""
@@ -2256,6 +2258,20 @@ class MainWindow(QMainWindow):
         config_dir = os.path.join(os.path.expanduser("~"), "AppData", "Roaming", "HanToKana")
         os.makedirs(config_dir, exist_ok=True)
         return os.path.join(config_dir, "config.json")
+    
+    def save_config(self, config):
+        """保存配置到文件"""
+        config_path = self.get_config_path()
+        try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=4)
+            return True
+        except Exception as e:
+            print(f"保存配置文件失败: {e}")
+            return False
     
     def resource_path(self, relative_path):
         """获取资源的绝对路径"""
@@ -3378,28 +3394,29 @@ class DictSearchDialog(QDialog):
         self.page_info_label = QLabel("第 1 页 / 共 1 页")
         self.page_info_label.setStyleSheet("""
             QLabel {
-                color: #666666;
-                font-size: 13px;
+                color: #73BBA3;
+                font-size: 12px;
                 padding: 0 10px;
+                min-width: 110px;
+                text-align: center;
             }
         """)
         
-        self.prev_page_btn = QPushButton("上一页")
-        self.prev_page_btn.setFixedWidth(80)
-        self.prev_page_btn.setFixedHeight(32)
-        self.prev_page_btn.clicked.connect(self.go_to_prev_page)
-        self.prev_page_btn.setStyleSheet("""
+        # 设置按钮样式
+        button_style = """
             QPushButton {
                 background-color: #f5f5f5;
                 color: #333333;
                 border: 1px solid #d9d9d9;
                 border-radius: 4px;
-                padding: 4px 12px;
-                font-size: 13px;
+                padding: 2px 8px;
+                font-size: 12px;
+                min-width: 70px;
             }
             QPushButton:hover {
                 background-color: #e6f7ff;
                 border-color: #73BBA3;
+                color: #73BBA3;
             }
             QPushButton:pressed {
                 background-color: #d6ebd0;
@@ -3410,13 +3427,109 @@ class DictSearchDialog(QDialog):
                 color: #d9d9d9;
                 border-color: #e8e8e8;
             }
+        """
+        
+        # 首页按钮
+        self.first_page_btn = QPushButton("首页")
+        self.first_page_btn.setFixedWidth(60)
+        self.first_page_btn.setFixedHeight(26)
+        self.first_page_btn.clicked.connect(self.go_to_first_page)
+        self.first_page_btn.setStyleSheet(button_style)
+        
+        # 上一页按钮
+        self.prev_page_btn = QPushButton("上一页")
+        self.prev_page_btn.setFixedWidth(60)
+        self.prev_page_btn.setFixedHeight(26)
+        self.prev_page_btn.clicked.connect(self.go_to_prev_page)
+        self.prev_page_btn.setStyleSheet(button_style)
+        
+        # 下一页按钮
+        self.next_page_btn = QPushButton("下一页")
+        self.next_page_btn.setFixedWidth(60)
+        self.next_page_btn.setFixedHeight(26)
+        self.next_page_btn.clicked.connect(self.go_to_next_page)
+        self.next_page_btn.setStyleSheet(button_style)
+        
+        # 尾页按钮
+        self.last_page_btn = QPushButton("末页")
+        self.last_page_btn.setFixedWidth(60)
+        self.last_page_btn.setFixedHeight(26)
+        self.last_page_btn.clicked.connect(self.go_to_last_page)
+        self.last_page_btn.setStyleSheet(button_style)
+        
+        # 每页条数设置
+        self.page_size_label = QLabel("每页显示：")
+        self.page_size_label.setStyleSheet("""
+            QLabel {
+                color: #666666;
+                font-size: 12px;
+                padding-right: 3px;
+            }
         """)
         
-        self.next_page_btn = QPushButton("下一页")
-        self.next_page_btn.setFixedWidth(80)
-        self.next_page_btn.setFixedHeight(32)
-        self.next_page_btn.clicked.connect(self.go_to_next_page)
-        self.next_page_btn.setStyleSheet(self.prev_page_btn.styleSheet())
+        # 从配置文件加载每页条数
+        config = self.parent.load_config() or {}  # 确保config不为None
+        self.entries_per_page = config.get("entries_per_page", 50)
+        
+        self.page_size_combo = QComboBox()
+        self.page_size_combo.addItems(["10", "20", "50", "100"])
+        self.page_size_combo.setCurrentText(str(self.entries_per_page))
+        self.page_size_combo.setFixedWidth(70)
+        self.page_size_combo.setFixedHeight(26)
+        # 确保下拉箭头可见
+        self.page_size_combo.setEditable(False)  # 不可编辑
+        self.page_size_combo.setFrame(True)      # 显示边框
+        self.page_size_combo.setMaxVisibleItems(4)  # 最多显示4项
+        self.page_size_combo.currentTextChanged.connect(self.on_page_size_changed)
+        self.page_size_combo.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #d9d9d9;
+                border-radius: 3px;
+                padding: 1px 20px 1px 6px;
+                background-color: white;
+                font-size: 12px;
+                min-width: 60px;
+                selection-background-color: #73BBA3;
+                selection-color: white;
+            }
+            QComboBox:hover {
+                border-color: #73BBA3;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 16px;
+                border-left: 1px solid #d9d9d9;
+                border-top-right-radius: 3px;
+                border-bottom-right-radius: 3px;
+                background-color: #f5f5f5;
+            }
+            QComboBox::down-arrow {
+                width: 0;
+                height: 0;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #666666;
+            }
+            /* 下拉列表样式 */
+            QComboBox QAbstractItemView {
+                border: 1px solid #d9d9d9;
+                border-radius: 3px;
+                background-color: white;
+                selection-background-color: #73BBA3;
+                selection-color: white;
+                padding: 2px;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 20px;
+                padding: 2px 6px;
+                font-size: 12px;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #E8F5E9;
+                color: #333333;
+            }
+        """)
         
         # 不再需要提前创建分页布局，我们将在底部直接添加
         
@@ -3432,8 +3545,8 @@ class DictSearchDialog(QDialog):
         # 设置表头可见
         self.table_widget.horizontalHeader().setVisible(True)
         
-        # 设置表格高度（增加表格区域的高度）
-        self.table_widget.setMinimumHeight(350)
+        # 让表格高度可以自动调整（不设置固定高度）
+        self.table_widget.setMinimumHeight(450)  # 设置最小高度
         
         # 设置默认列宽
         self.table_widget.setColumnWidth(0, 300)
@@ -3454,11 +3567,20 @@ class DictSearchDialog(QDialog):
         # 设置水平表头策略，确保拖动时保持其他列可见
         self.table_widget.horizontalHeader().setMinimumSectionSize(150)
         
-        # 调整表格大小策略
+        # 调整表格大小策略 - 在垂直方向上优先扩展
         self.table_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.table_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
         
-        # 设置表格不允许水平滚动
-        self.table_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # 设置表格滚动条策略
+        self.table_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # 需要时显示水平滚动条
+        self.table_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 总是显示垂直滚动条
+        
+        # 优化表格性能和滚动行为
+        self.table_widget.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
+        self.table_widget.verticalScrollBar().setSingleStep(10)
+        
+        # 设置滚动范围扩展，确保能滚动到底部但不留太多空白
+        self.table_widget.verticalScrollBar().setProperty("extraBottom", 5)
         
         # 设置表格调整大小策略
         self.table_widget.setSizeAdjustPolicy(QTableWidget.AdjustToContents)
@@ -3473,6 +3595,10 @@ class DictSearchDialog(QDialog):
         # 设置复制快捷键
         copy_shortcut = QShortcut(QKeySequence.Copy, self.table_widget)
         copy_shortcut.activated.connect(self.copy_selection)
+        
+        # 应用自定义代理来支持文本换行
+        word_wrap_delegate = WordWrapDelegate(self.table_widget)
+        self.table_widget.setItemDelegate(word_wrap_delegate)
         
         # 设置表格项居中对齐
         self.table_widget.setStyleSheet("""
@@ -3491,6 +3617,7 @@ class DictSearchDialog(QDialog):
                 border: none;  /* 移除选中项的边框 */
                 text-align: center;  /* 文字居中 */
                 min-height: 30px;
+                white-space: normal;  /* 允许文本换行 */
             }
             QTableWidget::item:selected {
                 background-color: #E8F5E9;
@@ -3600,23 +3727,73 @@ class DictSearchDialog(QDialog):
             }
         """)
         
-        layout.addWidget(self.table_widget)
-        
-        # 添加分页控件到底部（简化设计，不使用单独的框架）
         # 设置页码标签样式保持一致的高度
-        self.page_info_label.setMinimumHeight(32)
+        self.page_info_label.setMinimumHeight(26)
         self.page_info_label.setAlignment(Qt.AlignCenter)
         
-        # 调整分页布局
-        pagination_layout = QHBoxLayout()
-        pagination_layout.setContentsMargins(0, 8, 0, 0)  # 只需要上方的边距
-        pagination_layout.addStretch()
-        pagination_layout.addWidget(self.prev_page_btn)
-        pagination_layout.addWidget(self.page_info_label)
-        pagination_layout.addWidget(self.next_page_btn)
-        pagination_layout.addStretch()
+        # 创建表格容器
+        table_frame = QFrame()
+        table_frame.setFrameStyle(QFrame.NoFrame)
+        table_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        table_frame_layout = QVBoxLayout(table_frame)
+        table_frame_layout.setContentsMargins(0, 0, 0, 0)
+        table_frame_layout.setSpacing(0)
         
-        layout.addLayout(pagination_layout)
+        # 添加表格到表格容器
+        table_frame_layout.addWidget(self.table_widget)
+        
+        # 创建每页条数设置布局（右对齐）- 放在表格外部右下角
+        page_size_widget = QWidget()
+        page_size_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        page_size_widget.setFixedHeight(30)  # 设置固定高度
+        page_size_layout = QHBoxLayout(page_size_widget)
+        page_size_layout.setContentsMargins(0, 2, 6, 0)  # 调整边距
+        page_size_layout.addStretch()  # 左侧弹性空间
+        page_size_layout.addWidget(self.page_size_label)
+        page_size_layout.addWidget(self.page_size_combo)
+        
+        # 设置样式确保与表格分离
+        page_size_widget.setStyleSheet("""
+            QWidget {
+                background-color: transparent;
+                border: none;
+            }
+        """)
+        
+        # 创建表格和控件的主容器布局
+        table_container = QVBoxLayout()
+        table_container.setContentsMargins(0, 0, 0, 0)
+        table_container.setSpacing(4)  # 设置垂直间距
+        
+        # 添加表格框架和每页条数设置到主容器
+        table_container.addWidget(table_frame)
+        table_container.addWidget(page_size_widget)
+        
+        # 创建分页按钮容器 - 与表格保持小距离
+        pagination_widget = QWidget()
+        pagination_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        pagination_layout = QHBoxLayout(pagination_widget)
+        pagination_layout.setContentsMargins(0, 4, 0, 0)  # 调整上下边距
+        
+        # 创建分页按钮布局
+        pagination_buttons = QHBoxLayout()
+        pagination_buttons.setSpacing(4)  # 减小按钮之间的间距
+        pagination_buttons.addWidget(self.first_page_btn)
+        pagination_buttons.addWidget(self.prev_page_btn)
+        pagination_buttons.addWidget(self.page_info_label)
+        pagination_buttons.addWidget(self.next_page_btn)
+        pagination_buttons.addWidget(self.last_page_btn)
+        
+        # 将分页按钮居中放置
+        pagination_layout.addStretch(1)  # 左侧弹性空间
+        pagination_layout.addLayout(pagination_buttons)  # 分页按钮居中
+        pagination_layout.addStretch(1)  # 右侧弹性空间
+        
+        # 添加分页布局到表格容器
+        table_container.addWidget(pagination_widget)
+        
+        # 将整个容器添加到主布局
+        layout.addLayout(table_container)
         
         # 更新布局
         self.remove_focus_rect()
@@ -3703,6 +3880,15 @@ class DictSearchDialog(QDialog):
             self.current_page -= 1
             self.display_current_page()
             self.update_page_controls()
+            
+            # 滚动到表格顶部
+            self.table_widget.verticalScrollBar().setValue(0)
+            
+            # 重新计算滚动区域，确保所有行可见
+            QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+            
+            # 再次检查最后一行是否可见
+            QTimer.singleShot(300, self.scroll_to_bottom_check)
     
     def go_to_next_page(self):
         """转到下一页"""
@@ -3711,6 +3897,73 @@ class DictSearchDialog(QDialog):
             self.current_page += 1
             self.display_current_page()
             self.update_page_controls()
+            
+            # 滚动到表格顶部
+            self.table_widget.verticalScrollBar().setValue(0)
+            
+            # 重新计算滚动区域，确保所有行可见
+            QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+            
+            # 再次检查最后一行是否可见
+            QTimer.singleShot(300, self.scroll_to_bottom_check)
+    
+    def go_to_first_page(self):
+        """转到第一页"""
+        if self.current_page > 1:
+            self.current_page = 1
+            self.display_current_page()
+            self.update_page_controls()
+            
+            # 滚动到表格顶部
+            self.table_widget.verticalScrollBar().setValue(0)
+            
+            # 重新计算滚动区域，确保所有行可见
+            QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+            
+            # 再次检查最后一行是否可见
+            QTimer.singleShot(300, self.scroll_to_bottom_check)
+    
+    def go_to_last_page(self):
+        """转到最后一页"""
+        total_pages = self.calculate_total_pages()
+        if self.current_page < total_pages:
+            self.current_page = total_pages
+            self.display_current_page()
+            self.update_page_controls()
+            
+            # 滚动到表格顶部
+            self.table_widget.verticalScrollBar().setValue(0)
+            
+            # 重新计算滚动区域，确保所有行可见
+            QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+            
+            # 再次检查最后一行是否可见
+            QTimer.singleShot(300, self.scroll_to_bottom_check)
+    
+    def on_page_size_changed(self, text):
+        """处理每页显示条数变化"""
+        try:
+            new_size = int(text)
+            if new_size != self.entries_per_page:
+                self.entries_per_page = new_size
+                self.current_page = 1  # 重置到第一页
+                self.filter_and_display_entries()
+                
+                # 滚动到表格顶部
+                self.table_widget.verticalScrollBar().setValue(0)
+                
+                # 重新计算滚动区域，确保所有行可见
+                QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+                
+                # 再次检查最后一行是否可见
+                QTimer.singleShot(300, self.scroll_to_bottom_check)
+                
+                # 保存设置到配置文件
+                config = self.parent.load_config() or {}  # 确保config不为None
+                config["entries_per_page"] = new_size
+                self.parent.save_config(config)
+        except ValueError:
+            pass  # 忽略无效输入
     
     def calculate_total_pages(self):
         """计算总页数"""
@@ -3722,9 +3975,22 @@ class DictSearchDialog(QDialog):
         total_pages = self.calculate_total_pages()
         self.page_info_label.setText(f"第 {self.current_page} 页 / 共 {total_pages} 页")
         
-        # 启用/禁用上一页/下一页按钮
-        self.prev_page_btn.setEnabled(self.current_page > 1)
-        self.next_page_btn.setEnabled(self.current_page < total_pages)
+        # 更新每页显示条数下拉框
+        current_size = str(self.entries_per_page)
+        if self.page_size_combo.currentText() != current_size:
+            index = self.page_size_combo.findText(current_size)
+            if index >= 0:
+                self.page_size_combo.setCurrentIndex(index)
+        
+        # 启用/禁用首页/上一页按钮
+        is_first_page = self.current_page <= 1
+        self.first_page_btn.setEnabled(not is_first_page)
+        self.prev_page_btn.setEnabled(not is_first_page)
+        
+        # 启用/禁用下一页/尾页按钮
+        is_last_page = self.current_page >= total_pages
+        self.next_page_btn.setEnabled(not is_last_page)
+        self.last_page_btn.setEnabled(not is_last_page)
     
     def filter_and_display_entries(self):
         """根据搜索文本和选择的类型过滤词条并显示"""
@@ -3763,6 +4029,15 @@ class DictSearchDialog(QDialog):
         # 更新匹配计数和分页控件
         self.match_count_label.setText(f"{len(self.filtered_entries)} 个匹配")
         self.update_page_controls()
+        
+        # 滚动到表格顶部
+        self.table_widget.verticalScrollBar().setValue(0)
+        
+        # 重新计算滚动区域，确保所有行可见
+        QTimer.singleShot(100, lambda: self.ensure_all_rows_visible(self.table_widget.rowCount()))
+        
+        # 再次检查最后一行是否可见
+        QTimer.singleShot(300, self.scroll_to_bottom_check)
     
     def display_current_page(self):
         """显示当前页的词条"""
@@ -3776,16 +4051,21 @@ class DictSearchDialog(QDialog):
         # 获取当前页的词条
         current_page_entries = self.filtered_entries[start_idx:end_idx]
         
+        # 只设置实际数据的行数，不添加空行
+        actual_rows = len(current_page_entries)
+        
+        # 确保设置足够的行数，即使是空行也需要
+        self.table_widget.setRowCount(actual_rows)
+        
+        # 确保表格最后有足够空间显示所有行
+        self.ensure_all_rows_visible(actual_rows)
+        
         # 获取搜索关键词
         search_text = self.search_edit.text().strip().lower()
         search_keywords = [keyword.strip() for keyword in search_text.split() if keyword.strip()]
         
         # 在表格中显示当前页的词条
         for i, entry in enumerate(current_page_entries):
-            self.table_widget.insertRow(i)
-            
-            # 设置行高，确保内容完全显示
-            self.table_widget.setRowHeight(i, 36)
             
             # 设置行号从1开始
             row_idx = start_idx + i + 1
@@ -3837,15 +4117,22 @@ class DictSearchDialog(QDialog):
             word_item.setData(Qt.UserRole, word)  # 存储原始数据
             
             if any(keyword in word_lower for keyword in search_keywords):
-                # 设置富文本
+                # 先添加项目到表格
                 word_item.setData(Qt.DisplayRole, "")  # 清除普通文本
-                self.table_widget.setItem(i, 0, word_item)
-                self.table_widget.setCellWidget(i, 0, self.create_rich_text_label(highlighted_word))
-            else:
-                # 使用普通文本
-                word_item.setText(word)
                 word_item.setTextAlignment(Qt.AlignCenter)
                 self.table_widget.setItem(i, 0, word_item)
+                
+                # 然后设置富文本标签
+                rich_label = self.create_rich_text_label(highlighted_word)
+                self.table_widget.setCellWidget(i, 0, rich_label)
+            else:
+                # 使用普通文本 - 设置成富文本标签以确保换行正常工作
+                rich_label = self.create_rich_text_label(word)
+                word_item.setTextAlignment(Qt.AlignCenter)
+                self.table_widget.setItem(i, 0, word_item)
+                self.table_widget.setCellWidget(i, 0, rich_label)
+            
+            # 行高将由代理自动处理
             
             # 添加读音（使用富文本高亮匹配的关键词）
             readings = entry['readings']
@@ -3891,24 +4178,137 @@ class DictSearchDialog(QDialog):
             readings_item.setData(Qt.UserRole, readings)  # 存储原始数据
             
             if any(keyword in readings_lower for keyword in search_keywords):
-                # 设置富文本
+                # 先添加项目到表格
                 readings_item.setData(Qt.DisplayRole, "")  # 清除普通文本
-                self.table_widget.setItem(i, 1, readings_item)
-                self.table_widget.setCellWidget(i, 1, self.create_rich_text_label(highlighted_readings))
-            else:
-                # 使用普通文本
-                readings_item.setText(readings)
                 readings_item.setTextAlignment(Qt.AlignCenter)
                 self.table_widget.setItem(i, 1, readings_item)
+                
+                # 然后设置富文本标签
+                rich_label = self.create_rich_text_label(highlighted_readings)
+                self.table_widget.setCellWidget(i, 1, rich_label)
+            else:
+                # 使用普通文本 - 设置成富文本标签以确保换行正常工作
+                rich_label = self.create_rich_text_label(readings)
+                readings_item.setTextAlignment(Qt.AlignCenter)
+                self.table_widget.setItem(i, 1, readings_item)
+                self.table_widget.setCellWidget(i, 1, rich_label)
+            
+            # 行高将由代理自动处理
             
             # 添加类型
-            type_item = QTableWidgetItem(entry['type'])
+            type_item = QTableWidgetItem()
+            type_item.setData(Qt.UserRole, entry['type'])  # 存储原始数据
             type_item.setTextAlignment(Qt.AlignCenter)
             self.table_widget.setItem(i, 2, type_item)
+            
+            # 使用富文本标签以确保类型列也能正常换行
+            type_label = self.create_rich_text_label(entry['type'])
+            self.table_widget.setCellWidget(i, 2, type_label)
         
         # 设置表格外观
         self.setup_table_appearance()
     
+    def ensure_all_rows_visible(self, rows_count):
+        """确保所有行都可见，包括最后一行，但减少底部额外空间"""
+        if rows_count == 0:
+            return
+            
+        # 计算需要的表格高度
+        header_height = self.table_widget.horizontalHeader().height()
+        total_row_height = 0
+        
+        # 为每一行设置足够的行高，以适应文本换行
+        for i in range(rows_count):
+            if i < self.table_widget.rowCount():
+                # 获取每列的单元格内容，计算所需行高
+                max_height = 38  # 默认最小行高
+                
+                for col in range(3):  # 三列：词条、读音和类型
+                    cell_widget = self.table_widget.cellWidget(i, col)
+                    if cell_widget and isinstance(cell_widget, QLabel):
+                        # 获取标签内容所需的高度
+                        cell_widget.adjustSize()
+                        widget_height = cell_widget.height() + 14  # 增加一些内边距
+                        max_height = max(max_height, widget_height)
+                
+                # 设置行高为所有单元格中最大的高度
+                self.table_widget.setRowHeight(i, max_height)
+                total_row_height += max_height
+            else:
+                # 对于不存在的行，使用默认高度
+                total_row_height += 38
+            
+        # 添加足够的额外空间，确保最后一行完全可见
+        # 增加额外空间以考虑换行文本
+        padding = 40  # 增加更多的底部空间
+        
+        # 计算表格内容区域的总高度
+        content_height = header_height + total_row_height + padding
+        
+        # 调整表格垂直滚动条的范围
+        vsb = self.table_widget.verticalScrollBar()
+        if vsb:
+            # 计算足够大的值，确保能够滚动到最后一行
+            max_value = content_height - self.table_widget.viewport().height()
+            if max_value < 0:
+                max_value = 0
+                
+            # 给最大值添加一个额外的行高，确保最后一行可见
+            max_value += 50  # 额外添加更多空间
+                
+            # 设置滚动范围
+            vsb.setMaximum(max_value)
+            
+        # 通过定时器延迟执行滚动到底部的操作
+        QTimer.singleShot(100, self.scroll_to_bottom_check)
+    
+    def scroll_to_bottom_check(self):
+        """确保可以滚动到底部，确保最后一行完全可见"""
+        rows = self.table_widget.rowCount()
+        if rows <= 0:
+            return
+        
+        # 获取最后一行
+        last_item = self.table_widget.item(rows - 1, 0)
+        if not last_item:
+            return
+            
+        # 获取滚动条
+        vsb = self.table_widget.verticalScrollBar()
+        if not vsb:
+            return
+            
+        # 记住当前滚动位置
+        current_pos = vsb.value()
+        
+        # 临时滚动到底部，检查最后一行是否可见
+        self.table_widget.scrollToItem(last_item, QTableWidget.PositionAtBottom)
+        
+        # 获取最后一行的位置和大小
+        last_row_rect = self.table_widget.visualItemRect(last_item)
+        viewport_rect = self.table_widget.viewport().rect()
+        
+        # 强制确保最后一行完全可见，添加足够的空间
+        if not viewport_rect.contains(last_row_rect.bottomRight()):
+            # 计算需要额外增加的空间，确保最后一行完全可见
+            extra_space = last_row_rect.bottom() - viewport_rect.bottom() + 20  # 增加20像素确保可见
+            
+            # 调整滚动条最大值
+            new_max = vsb.maximum() + extra_space + last_row_rect.height()
+            vsb.setMaximum(new_max)
+            
+            # 再次尝试滚动到底部查看是否可见
+            self.table_widget.scrollToItem(last_item, QTableWidget.PositionAtBottom)
+            
+            # 如果还是不可见，再增加空间
+            last_row_rect = self.table_widget.visualItemRect(last_item)
+            viewport_rect = self.table_widget.viewport().rect()
+            if not viewport_rect.contains(last_row_rect.bottomRight()):
+                vsb.setMaximum(vsb.maximum() + last_row_rect.height() + 50)
+        
+        # 恢复原始滚动位置
+        vsb.setValue(current_pos)
+                
     def setup_table_appearance(self):
         """设置表格外观"""
         # 设置表格左上角按钮样式
@@ -4079,12 +4479,27 @@ class DictSearchDialog(QDialog):
         """窗口大小改变事件"""
         super().resizeEvent(event)
         
-        # 调整表格宽度以适应窗口大小
-        margins = 48  # 考虑窗口边距
-        self.table_widget.setFixedWidth(self.width() - margins)
+        # 调整表格尺寸以适应窗口大小
+        margins_h = 48  # 水平边距
+        margins_v = 240  # 垂直边距（其他控件总高度）
+        
+        # 计算可用空间
+        table_width = self.width() - margins_h
+        table_height = self.height() - margins_v
+        
+        # 确保最小高度
+        if table_height < 450:
+            table_height = 450
+        
+        # 设置表格尺寸
+        self.table_widget.setFixedWidth(table_width)
+        self.table_widget.setFixedHeight(table_height)
         
         # 重新设置列宽比例
         self.adjust_columns_to_fit()
+        
+        # 重新计算滚动区域，确保所有行可见
+        self.ensure_all_rows_visible(self.table_widget.rowCount())
     
     def adjust_columns_to_fit(self):
         """调整列宽以适应表格宽度"""
@@ -4107,9 +4522,24 @@ class DictSearchDialog(QDialog):
         """窗口显示事件"""
         super().showEvent(event)
         
-        # 调整表格宽度以适应窗口大小
-        margins = 48  # 考虑窗口边距
-        self.table_widget.setFixedWidth(self.width() - margins)
+        # 调整表格尺寸以适应窗口大小
+        margins_h = 48  # 水平边距
+        margins_v = 240  # 垂直边距（其他控件总高度）
+        
+        # 计算可用空间
+        table_width = self.width() - margins_h
+        table_height = self.height() - margins_v
+        
+        # 确保最小高度
+        if table_height < 450:
+            table_height = 450
+            
+        # 设置表格尺寸
+        self.table_widget.setFixedWidth(table_width)
+        self.table_widget.setFixedHeight(table_height)
+        
+        # 加载词典数据
+        self.load_dict_data()
         
         # 窗口显示时，初始化列宽
         # 使用多个延时，确保在不同时机都能正确设置列宽
@@ -4147,11 +4577,27 @@ class DictSearchDialog(QDialog):
         for row in rows:
             row_texts = []
             for col in cols:
-                item = self.table_widget.item(row, col)
-                if item and item in selected:
-                    row_texts.append(item.text())
+                # 检查是否有单元格控件（富文本标签）
+                cell_widget = self.table_widget.cellWidget(row, col)
+                if cell_widget and isinstance(cell_widget, QLabel):
+                    # 从QLabel获取纯文本（去除HTML标签）
+                    text = cell_widget.text()
+                    # 移除HTML标签
+                    text = text.replace(r'<span style="background-color: #FFFF00;">', '')
+                    text = text.replace('</span>', '')
+                    row_texts.append(text)
                 else:
-                    row_texts.append("")
+                    # 常规单元格项处理
+                    item = self.table_widget.item(row, col)
+                    if item and item in selected:
+                        # 尝试从UserRole获取原始数据
+                        data = item.data(Qt.UserRole)
+                        if data:
+                            row_texts.append(data)
+                        else:
+                            row_texts.append(item.text())
+                    else:
+                        row_texts.append("")
             texts.append("\t".join(row_texts))
         
         # 复制到剪贴板
@@ -4247,7 +4693,70 @@ class DictSearchDialog(QDialog):
         # 确保标签完全填充单元格
         label.setMinimumHeight(28)
         label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # 启用文本换行
+        label.setWordWrap(True)
+        
+        # 自动调整高度以适应内容
+        label.adjustSize()
         return label
+
+class WordWrapDelegate(QStyledItemDelegate):
+    """自定义表格项代理，处理文本换行"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+    def paint(self, painter, option, index):
+        """重写绘制方法，支持文本换行"""
+        # 禁用省略号，确保文本不会被截断
+        option.textElideMode = Qt.ElideNone
+        
+        # 检查单元格是否有部件
+        if index.model().data(index, Qt.DisplayRole):
+            # 对于没有自定义部件的单元格，处理文本换行
+            text_option = QTextOption()
+            text_option.setWrapMode(QTextOption.WordWrap)
+            
+            rect = option.rect
+            text = index.data(Qt.DisplayRole)
+            
+            # 绘制背景和选择效果
+            self.initStyleOption(option, index)
+            style = option.widget.style() if option.widget else QApplication.style()
+            style.drawControl(QStyle.CE_ItemViewItem, option, painter, option.widget)
+            
+            # 绘制文本
+            margin = 6  # 边距
+            text_rect = rect.adjusted(margin, margin, -margin, -margin)
+            alignment = index.data(Qt.TextAlignmentRole) or Qt.AlignCenter
+            
+            painter.save()
+            painter.setClipRect(text_rect)
+            painter.drawText(text_rect, alignment, text)
+            painter.restore()
+        else:
+            # 对于有自定义部件的单元格，使用默认绘制
+            super().paint(painter, option, index)
+    
+    def sizeHint(self, option, index):
+        """重写尺寸提示方法，计算换行文本需要的高度"""
+        text = index.data(Qt.DisplayRole)
+        if not text:
+            return super().sizeHint(option, index)
+        
+        # 计算文本宽度
+        rect = option.rect
+        width = rect.width() - 20  # 减去一些padding
+        
+        # 计算需要的高度
+        fm = option.fontMetrics
+        text_rect = fm.boundingRect(0, 0, width, 2000, Qt.TextWordWrap | Qt.AlignCenter, text)
+        height = max(38, text_rect.height() + 14)  # 设置最小高度为38，加上padding
+        
+        return QSize(rect.width(), height)
+
+    def createEditor(self, parent, option, index):
+        """禁止编辑，确保只读状态"""
+        return None
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
