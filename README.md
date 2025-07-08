@@ -36,7 +36,7 @@
 
 词典搜索页面
 
-![image-20250709000120313](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507090001450.png)
+![image-202507090204456](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507090204456.png)
 
 ## 四・下载与使用
 
@@ -122,12 +122,12 @@ python hantokana.py
 
 这样可以正确处理"まで今"这样的前缀组合。
 
-#### 4. common_combinations(后缀组合)
+#### 4. suffix_combinations(后缀组合)
 
 包含常见的指示词和助词组合，用于改善分词效果：
 
 ```json
-"common_combinations": {
+"suffix_combinations": {
   "指示词/代词": ["助词1", "助词2", ...]
 }
 ```
