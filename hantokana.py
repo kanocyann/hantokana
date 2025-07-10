@@ -608,7 +608,7 @@ class CustomCheckBox(QCheckBox):
         """处理鼠标点击事件"""
         if event.button() == Qt.LeftButton:
             self.toggle()
-            self.update()  # 强制重绘
+            self.update()
     
 class SwitchCheckBox(QCheckBox):
     """开关样式的复选框，类似v0.2.py中的info-round-toggle"""
@@ -802,7 +802,7 @@ class CustomMessageBox(QDialog):
         self.dont_show_again = show_dont_show_again
         self.dont_show_checkbox = None
         if show_dont_show_again:
-            self.dont_show_checkbox = QCheckBox("不再显示此提示")
+            self.dont_show_checkbox = CustomCheckBox("不再显示此提示")
             self.dont_show_checkbox.setChecked(False)
             layout.addWidget(self.dont_show_checkbox)
         
@@ -3506,7 +3506,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(exit_info)
         
         # 记住选择选项
-        remember_choice_checkbox = QCheckBox("记住我的选择，下次无需询问")
+        remember_choice_checkbox = CustomCheckBox("记住我的选择，下次无需询问")
         remember_choice_checkbox.setStyleSheet("""
             QCheckBox {
                 font-size: 13px;
@@ -3581,7 +3581,7 @@ class MainWindow(QMainWindow):
         result = dialog.exec()
         
         # 保存用户选择
-        remember_choice = dialog.findChild(QCheckBox, "remember_choice_checkbox")
+        remember_choice = dialog.findChild(CustomCheckBox, "remember_choice_checkbox")
         if remember_choice and remember_choice.isChecked():
             config = self.load_config()
             if result == QDialog.Accepted:  # 用户选择了最小化到托盘
