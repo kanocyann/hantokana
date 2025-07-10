@@ -4,9 +4,9 @@ import json
 from ctypes import windll
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QTextEdit, QPushButton, QCheckBox, QLabel, QDialog,
-                              QFileDialog, QMenu, QListWidget, QLineEdit, 
+                              QFileDialog, QMenu, QListWidget, QLineEdit, QRadioButton,
                              QFrame, QStyleFactory, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QSizePolicy, QComboBox, QStyledItemDelegate, QStyle)
+                             QSizePolicy, QComboBox, QStyledItemDelegate, QStyle, QSystemTrayIcon)
 from PySide6.QtCore import Qt, QUrl, QRect, QSize, QTimer, QRectF
 from PySide6.QtGui import (QIcon, QAction, QFont, QPixmap, QDesktopServices, QPainter, 
                           QPen, QColor, QKeySequence, QShortcut, QTextOption, QTextDocument, QPalette)
@@ -798,20 +798,24 @@ class CustomMessageBox(QDialog):
         layout.addWidget(message_label)
         
         # 不再显示选项
-        self.dont_show_again = None
-        if show_dont_show_again and style in ['info', 'success']:
-            self.dont_show_again = QCheckBox("不再显示此提示")
-            self.dont_show_again.setChecked(False)
-            layout.addWidget(self.dont_show_again)
+        self.dont_show_again = show_dont_show_again
+        self.dont_show_checkbox = None
+        if show_dont_show_again:
+            self.dont_show_checkbox = QCheckBox("不再显示此提示")
+            self.dont_show_checkbox.setChecked(False)
+            layout.addWidget(self.dont_show_checkbox)
         
         # 按钮
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(8)
+        self.button_layout = QHBoxLayout()
+        self.button_layout.setSpacing(8)
+        
+        # 始终创建ok_button作为类的属性，无论是哪种样式
+        self.ok_button = None
         
         if style == 'question':
             # 是/否按钮
-            yes_button = QPushButton("是")
-            yes_button.setStyleSheet(f"""
+            self.ok_button = QPushButton("是")
+            self.ok_button.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {color};
                     color: white;
@@ -846,14 +850,14 @@ class CustomMessageBox(QDialog):
                     background-color: #d9d9d9;
                 }
             """)
-            yes_button.clicked.connect(self.accept)
+            self.ok_button.clicked.connect(self.accept)
             no_button.clicked.connect(self.reject)
-            button_layout.addWidget(yes_button)
-            button_layout.addWidget(no_button)
+            self.button_layout.addWidget(self.ok_button)
+            self.button_layout.addWidget(no_button)
         else:
             # 确定按钮
-            ok_button = QPushButton("确定")
-            ok_button.setStyleSheet(f"""
+            self.ok_button = QPushButton("确定")
+            self.ok_button.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {color};
                     color: white;
@@ -870,10 +874,10 @@ class CustomMessageBox(QDialog):
                     background-color: {color}bb;
                 }}
             """)
-            ok_button.clicked.connect(self.accept)
-            button_layout.addWidget(ok_button)
+            self.ok_button.clicked.connect(self.accept)
+            self.button_layout.addWidget(self.ok_button)
         
-        layout.addLayout(button_layout)
+        layout.addLayout(self.button_layout)
         
         # 设置固定宽度
         self.setFixedWidth(300)
@@ -1729,6 +1733,30 @@ class MainWindow(QMainWindow):
         icon_path = self.resource_path("icon.ico")
         self.setWindowIcon(QIcon(icon_path))
         
+        # 创建系统托盘图标
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon(icon_path))
+        self.tray_icon.setToolTip("日文汉字-假名/罗马音 转换工具")
+        
+        # 创建托盘菜单
+        self.tray_menu = QMenu()
+        self.restore_action = QAction("显示主窗口", self)
+        self.restore_action.triggered.connect(self.showNormal)
+        self.quit_action = QAction("退出", self)
+        self.quit_action.triggered.connect(self.quit_application)
+        self.tray_menu.addAction(self.restore_action)
+        self.tray_menu.addSeparator()
+        self.tray_menu.addAction(self.quit_action)
+        
+        # 设置托盘菜单
+        self.tray_icon.setContextMenu(self.tray_menu)
+        
+        # 托盘图标点击事件
+        self.tray_icon.activated.connect(self.tray_icon_activated)
+        
+        # 显示托盘图标
+        self.tray_icon.show()
+        
         # 设置样式表
         self.setStyleSheet("""
             QMainWindow {
@@ -2167,7 +2195,7 @@ class MainWindow(QMainWindow):
         
         # 设置菜单
         settings_menu = menubar.addMenu("设置")
-        dict_path_action = QAction("设置默认词库路径", self)
+        dict_path_action = QAction("默认项设置", self)
         dict_path_action.triggered.connect(self.open_settings_window)
         settings_menu.addAction(dict_path_action)
         
@@ -2186,8 +2214,10 @@ class MainWindow(QMainWindow):
         """加载配置"""
         config = {}
         try:
-            if os.path.exists(self.get_config_path()):
-                with open(self.get_config_path(), 'r', encoding='utf-8') as f:
+            config_path = self.get_config_path()
+            
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     self.current_dict_path = config.get('current_dict_path', self.current_dict_path)
         except Exception as e:
@@ -2270,9 +2300,8 @@ class MainWindow(QMainWindow):
     
     def get_config_path(self):
         """获取配置文件路径"""
-        config_dir = os.path.join(os.path.expanduser("~"), "AppData", "Roaming", "HanToKana")
-        os.makedirs(config_dir, exist_ok=True)
-        return os.path.join(config_dir, "config.json")
+        # 使用与get_appdata_path相同的路径，确保一致性
+        return os.path.join(self.get_appdata_path(), "config.json")
     
     def save_config(self, config):
         """保存配置到文件"""
@@ -2458,7 +2487,7 @@ class MainWindow(QMainWindow):
             # 否则继续正常分词处理
             # 先进行正常分词
             words = self.tagger(raw)
-            
+
             
             # 使用集合来跟踪已处理的词，避免重复
             processed_words = set()
@@ -3020,7 +3049,7 @@ class MainWindow(QMainWindow):
     def open_settings_window(self):
         """打开设置窗口"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("设置")
+        dialog.setWindowTitle("默认项设置")
         dialog.setWindowFlags(Qt.Window)
         dialog.setModal(True)
         
@@ -3034,6 +3063,16 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(dialog)
         layout.setSpacing(16)
         layout.setContentsMargins(24, 24, 24, 24)
+        
+        # 标题：词典设置
+        dict_title = QLabel("词典默认路径设置")
+        dict_title.setStyleSheet("""
+            font-size: 16px;
+            font-weight: bold;
+            color: #333333;
+            margin-bottom: 8px;
+        """)
+        layout.addWidget(dict_title)
         
         # 路径输入框
         path_frame = QFrame()
@@ -3094,6 +3133,144 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(path_frame)
         
+        # 添加分隔线
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        separator.setStyleSheet("background-color: #d9d9d9; margin: 10px 0;")
+        layout.addWidget(separator)
+        
+        # 标题：托盘设置
+        tray_title = QLabel("托盘设置")
+        tray_title.setStyleSheet("""
+            font-size: 16px;
+            font-weight: bold;
+            color: #333333;
+            margin-bottom: 8px;
+        """)
+        layout.addWidget(tray_title)
+        
+        # 托盘设置部分直接使用主布局，不使用额外的框架
+        # 获取当前配置
+        config = self.load_config()
+        show_close_prompt = not config.get("minimize_to_tray_without_asking", False)
+        close_action = config.get("close_action", "minimize")
+        
+        # 添加关闭提示选项
+        close_prompt_checkbox = SwitchCheckBox("关闭窗口时显示提示对话框")
+        close_prompt_checkbox.setChecked(show_close_prompt)
+        close_prompt_checkbox.setStyleSheet("""
+            font-size: 14px;
+            color: #333333;
+        """)
+        close_prompt_checkbox.setObjectName("close_prompt_checkbox")  # 设置对象名称，方便后续查找
+        layout.addWidget(close_prompt_checkbox)
+        
+        # 添加说明文本
+        prompt_desc = QLabel("启用此选项后，关闭窗口时将显示提示对话框，询问是否最小化到托盘或退出程序。")
+        prompt_desc.setWordWrap(True)
+        prompt_desc.setStyleSheet("""
+            font-size: 12px;
+            color: #666666;
+            margin-left: 24px;
+            margin-bottom: 16px;
+        """)
+        layout.addWidget(prompt_desc)
+        
+        # 添加默认关闭行为选择
+        default_action_label = QLabel("默认关闭行为（当不显示提示对话框时）：")
+        default_action_label.setStyleSheet("""
+            font-size: 14px;
+            color: #333333;
+            margin-top: 8px;
+        """)
+        layout.addWidget(default_action_label)
+        
+        # 创建自定义单选按钮组
+        radio_group = QFrame()
+        radio_group.setStyleSheet("""
+            background-color: transparent;
+            margin-left: 24px;
+        """)
+        radio_layout = QVBoxLayout(radio_group)  # 改为垂直布局
+        radio_layout.setContentsMargins(0, 8, 0, 0)
+        radio_layout.setSpacing(12)  # 垂直间距
+        
+        # 自定义单选按钮样式
+        radio_style = """
+            QRadioButton {
+                font-size: 13px;
+                color: #333333;
+                spacing: 10px;  /* 文本和指示器之间的距离 */
+                padding: 2px 0;
+            }
+            
+            QRadioButton::indicator {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                border: 1px solid #aaaaaa;
+                background-color: white;
+            }
+            
+            QRadioButton::indicator:checked {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                border: 1px solid #73BBA3;
+                background-color: white;
+            }
+            
+            QRadioButton::indicator:checked {
+                border: 1px solid #73BBA3;
+                background: qradialgradient(cx:0.5, cy:0.5, radius:0.4, fx:0.5, fy:0.5, 
+                                           stop:0.0 #73BBA3, stop:0.65 #73BBA3, stop:0.7 white);
+            }
+            
+            QRadioButton::indicator:hover {
+                border-color: #88D66C;
+            }
+            
+            QRadioButton:hover {
+                color: #73BBA3;
+            }
+        """
+        
+        # 最小化到托盘选项
+        minimize_radio = QRadioButton("最小化到托盘 - 应用程序将继续在后台运行")
+        minimize_radio.setChecked(close_action == "minimize")
+        minimize_radio.setObjectName("minimize_radio")
+        minimize_radio.setStyleSheet(radio_style)
+        radio_layout.addWidget(minimize_radio)
+        
+        # 退出程序选项
+        exit_radio = QRadioButton("退出程序 - 完全关闭应用程序")
+        exit_radio.setChecked(close_action == "exit")
+        exit_radio.setObjectName("exit_radio")
+        exit_radio.setStyleSheet(radio_style)
+        radio_layout.addWidget(exit_radio)
+        
+        # 添加单选按钮组
+        layout.addWidget(radio_group)
+        
+        # 添加说明文本
+        action_desc = QLabel("选择关闭窗口时的默认行为，仅在不显示提示对话框时生效。")
+        action_desc.setWordWrap(True)
+        action_desc.setStyleSheet("""
+            font-size: 12px;
+            color: #666666;
+            margin-left: 24px;
+            margin-bottom: 16px;
+        """)
+        layout.addWidget(action_desc)
+        
+        # 添加分隔线
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        separator.setStyleSheet("background-color: #e8e8e8; margin: 8px 0;")
+        layout.addWidget(separator)
+        
         # 按钮区域
         button_layout = QHBoxLayout()
         button_layout.setSpacing(12)
@@ -3145,8 +3322,12 @@ class MainWindow(QMainWindow):
         # 设置最小大小
         dialog.setMinimumSize(500, 150)
         
-        # 居中显示
-        dialog.move(self.frameGeometry().center() - dialog.rect().center())
+        # 在屏幕中央显示，强制定位在更高的位置
+        screen = QApplication.primaryScreen().availableGeometry()
+        dialog_size = dialog.size()
+        # 将垂直位置向上调整20%，使对话框更靠近屏幕上方
+        y_position = int((screen.height() - dialog_size.height()) * 0.4)
+        dialog.move(int((screen.width() - dialog_size.width()) / 2), y_position)
         dialog.exec()
     
     def select_path(self, path_edit):
@@ -3178,12 +3359,28 @@ class MainWindow(QMainWindow):
             self.current_dict_path = new_path
         
         # 保存配置到JSON文件
-        config = {
-            'current_dict_path': self.current_dict_path
-        }
+        config = self.load_config()
+        config['current_dict_path'] = self.current_dict_path
         
-        with open(self.get_config_path(), 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=4)
+        # 保存关闭提示设置
+        # 通过对象名称查找关闭提示复选框
+        close_prompt_checkbox = settings_window.findChild(SwitchCheckBox, "close_prompt_checkbox")
+        if close_prompt_checkbox:
+            # 设置为相反值，因为配置中存储的是"不再显示"
+            config["minimize_to_tray_without_asking"] = not close_prompt_checkbox.isChecked()
+        
+        # 保存默认关闭行为
+        minimize_radio = settings_window.findChild(QRadioButton, "minimize_radio")
+        exit_radio = settings_window.findChild(QRadioButton, "exit_radio")
+        if minimize_radio and exit_radio:
+            if minimize_radio.isChecked():
+                config["close_action"] = "minimize"
+            elif exit_radio.isChecked():
+                config["close_action"] = "exit"
+
+        
+        # 保存配置
+        self.save_config(config)
         
         settings_window.accept()
     
@@ -3250,9 +3447,14 @@ class MainWindow(QMainWindow):
             image_path = self.resource_path("hantokana.png")
             if os.path.exists(image_path):
                 pixmap = QPixmap(image_path)
+                # 使用高质量的渲染方式
+                pixmap = pixmap.scaled(256, 256, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                
                 image_label = QLabel()
-                image_label.setPixmap(pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))  # 减小图片尺寸
+                # 应用抗锯齿
+                image_label.setPixmap(pixmap)
                 image_label.setAlignment(Qt.AlignCenter)
+                # 设置样式，添加圆角和边框效果，使图像看起来更平滑
                 image_label.setStyleSheet("""
                     QLabel {
                         background-color: transparent;
@@ -3266,7 +3468,7 @@ class MainWindow(QMainWindow):
             print(f"加载图片失败: {str(e)}")
         
         # 版本信息
-        version_label = QLabel("版本: 0.3.1")
+        version_label = QLabel("版本: 0.3.2")
         version_label.setStyleSheet("""
             font-size: 14px;
             color: #1f1f1f;
@@ -3312,17 +3514,227 @@ class MainWindow(QMainWindow):
         # 设置最小大小
         dialog.setMinimumSize(450, 400)  # 增加宽度，减小高度
         
-        # 居中显示
-        dialog.move(self.frameGeometry().center() - dialog.rect().center())
+        # 在屏幕中央显示，强制定位在更高的位置
+        screen = QApplication.primaryScreen().availableGeometry()
+        dialog_size = dialog.size()
+        # 将垂直位置向上调整20%，使对话框更靠近屏幕上方
+        y_position = int((screen.height() - dialog_size.height()) * 0.4)
+        dialog.move(int((screen.width() - dialog_size.width()) / 2), y_position)
         dialog.exec()
     
     def closeEvent(self, event):
         """关闭窗口事件"""
-        dialog = CustomMessageBox(self, "确认退出", "确定要退出应用程序吗？", style='question')
-        if dialog.exec() == QDialog.Accepted:
-            event.accept()
-        else:
+        # 如果用户之前选择了记住选择，则根据保存的选择执行操作
+        config = self.load_config()
+        if config.get("minimize_to_tray_without_asking", False):
+            close_action = config.get("close_action", "minimize")
+            if close_action == "minimize":
+                # 直接最小化到托盘
+                self.hide()
+                event.ignore()
+                return
+            elif close_action == "exit":
+                # 直接退出程序
+                self.quit_application()
+                return
+            
+        # 创建自定义对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle("关闭选项")
+        dialog.setWindowFlags(Qt.Dialog | Qt.WindowStaysOnTopHint)
+        dialog.setFixedWidth(400)
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #fafafa;
+                border-radius: 8px;
+            }
+        """)
+        
+        # 设置窗口图标
+        try:
+            icon_path = self.resource_path("icon.ico")
+            dialog.setWindowIcon(QIcon(icon_path))
+        except Exception:
+            pass
+        
+        # 创建布局
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(20)
+        layout.setContentsMargins(24, 24, 24, 24)
+        
+        # 图标和标题
+        title_layout = QHBoxLayout()
+        
+        # 添加图标
+        icon_label = QLabel("?")
+        icon_label.setStyleSheet("""
+            QLabel {
+                font-size: 28px;
+                color: #73BBA3;
+                font-weight: bold;
+            }
+        """)
+        title_layout.addWidget(icon_label)
+        
+        # 添加标题文本
+        title_text = QLabel("关闭程序")
+        title_text.setStyleSheet("""
+            QLabel {
+                font-size: 18px;
+                font-weight: bold;
+                color: #333333;
+            }
+        """)
+        title_layout.addWidget(title_text)
+        title_layout.addStretch()
+        layout.addLayout(title_layout)
+        
+        # 添加消息
+        message_label = QLabel("您希望如何处理应用程序？")
+        message_label.setWordWrap(True)
+        message_label.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                color: #333333;
+                margin-bottom: 10px;
+            }
+        """)
+        layout.addWidget(message_label)
+        
+        # 添加选项说明
+        minimize_info = QLabel("• 最小化到托盘：应用程序将继续在后台运行，您可以通过点击系统托盘图标重新打开。")
+        minimize_info.setWordWrap(True)
+        minimize_info.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #666666;
+                margin-bottom: 5px;
+            }
+        """)
+        layout.addWidget(minimize_info)
+        
+        exit_info = QLabel("• 退出程序：完全关闭应用程序，您需要重新启动才能使用。")
+        exit_info.setWordWrap(True)
+        exit_info.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #666666;
+                margin-bottom: 15px;
+            }
+        """)
+        layout.addWidget(exit_info)
+        
+        # 记住选择选项
+        remember_choice_checkbox = QCheckBox("记住我的选择，下次无需询问")
+        remember_choice_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-size: 13px;
+                color: #666666;
+                margin-bottom: 15px;
+            }
+        """)
+        remember_choice_checkbox.setObjectName("remember_choice_checkbox")
+        layout.addWidget(remember_choice_checkbox)
+        
+        # 按钮布局
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(20)  # 设置按钮之间的间距
+        
+        # 最小化到托盘按钮
+        minimize_button = QPushButton("最小化到托盘")
+        minimize_button.setStyleSheet("""
+            QPushButton {
+                background-color: #73BBA3;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 13px;
+                min-width: 140px;
+            }
+            QPushButton:hover {
+                background-color: #88D66C;
+            }
+            QPushButton:pressed {
+                background-color: #5A9D8C;
+            }
+        """)
+        minimize_button.clicked.connect(dialog.accept)
+        
+        # 退出程序按钮
+        exit_button = QPushButton("退出程序")
+        exit_button.setStyleSheet("""
+            QPushButton {
+                background-color: #F49BAB;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 13px;
+                min-width: 140px;
+            }
+            QPushButton:hover {
+                background-color: #FFAAAA;
+            }
+            QPushButton:pressed {
+                background-color: #FF9898;
+            }
+        """)
+        exit_button.clicked.connect(lambda: dialog.done(2))  # 使用自定义返回值2表示退出
+        
+        # 将按钮添加到主按钮布局，均匀分布
+        button_layout.addStretch(1)
+        button_layout.addWidget(minimize_button)
+        button_layout.addStretch(1)
+        button_layout.addWidget(exit_button)
+        button_layout.addStretch(1)
+        
+        layout.addLayout(button_layout)
+        
+        # 在屏幕中央显示对话框，强制定位在更高的位置
+        screen = QApplication.primaryScreen().availableGeometry()
+        dialog_size = dialog.size()
+        # 将垂直位置向上调整20%，使对话框更靠近屏幕上方
+        y_position = int((screen.height() - dialog_size.height()) * 0.4)
+        dialog.move(int((screen.width() - dialog_size.width()) / 2), y_position)
+        result = dialog.exec()
+        
+        # 保存用户选择
+        remember_choice = dialog.findChild(QCheckBox, "remember_choice_checkbox")
+        if remember_choice and remember_choice.isChecked():
+            config = self.load_config()
+            if result == QDialog.Accepted:  # 用户选择了最小化到托盘
+                config["close_action"] = "minimize"
+                config["minimize_to_tray_without_asking"] = True
+            elif result == 2:  # 用户选择了退出程序
+                config["close_action"] = "exit"
+                config["minimize_to_tray_without_asking"] = True
+            self.save_config(config)
+        
+        if result == QDialog.Accepted:  # 最小化到托盘
+            self.hide()
             event.ignore()
+        elif result == 2:  # 退出程序
+            self.quit_application()
+        else:  # 取消
+            event.ignore()
+    
+    def tray_icon_activated(self, reason):
+        """托盘图标激活事件"""
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            # 单击托盘图标，显示/隐藏主窗口
+            if self.isVisible():
+                self.hide()
+            else:
+                self.showNormal()
+                self.activateWindow()  # 激活窗口，使其获得焦点
+    
+    def quit_application(self):
+        """退出应用程序"""
+        # 移除托盘图标
+        self.tray_icon.hide()
+        # 退出应用程序
+        QApplication.quit()
     
     def setup_shortcuts(self):
         """设置快捷键"""
