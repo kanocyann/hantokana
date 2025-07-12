@@ -1,4 +1,4 @@
-![longhtk](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/20250505200512645.png)
+![hantokana_bg](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507122039932.png)
 
 # Hantokana
 
@@ -28,15 +28,19 @@
 
 主界面
 
-![image-20250613234602436](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202506132346644.png)
+![image-20250712204113032](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507122041098.png)
 
 词典编辑界面
 
-![image-20250613234653947](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202506132346019.png)
+![image-20250712204138380](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507122041506.png)
 
 词典搜索页面
 
-![image-202507090204456](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507090204456.png)
+![image-20250712204207779](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507122042854.png)
+
+默认项设置
+
+![image-20250712204254506](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507122042554.png)
 
 ## 四・下载与使用
 
@@ -122,12 +126,12 @@ python hantokana.py
 
 这样可以正确处理"まで今"这样的前缀组合。
 
-#### 4. suffix_combinations(后缀组合)
+#### 4. common_combinations(后缀组合)
 
 包含常见的指示词和助词组合，用于改善分词效果：
 
 ```json
-"suffix_combinations": {
+"common_combinations": {
   "指示词/代词": ["助词1", "助词2", ...]
 }
 ```
