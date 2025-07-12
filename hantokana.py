@@ -1693,6 +1693,7 @@ class MainWindow(QMainWindow):
         self.tagger = None
         self.conv = None
         self.dict_search_dialog = None  # 添加词典搜索对话框变量
+        self.enable_conflict_detection = True  # 默认启用冲突检测
         
         # 加载配置和字典
         self.load_config()
@@ -2086,10 +2087,13 @@ class MainWindow(QMainWindow):
                 with open(config_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     self.current_dict_path = config.get('current_dict_path', self.current_dict_path)
+                    # 加载冲突检测设置
+                    self.enable_conflict_detection = config.get('enable_conflict_detection', True)
         except Exception as e:
             print(f"加载配置时出错: {e}")
             # 如果加载失败，使用默认配置
             self.current_dict_path = self.resource_path("dictionary.txt")
+            self.enable_conflict_detection = True
         return config  # 始终返回一个字典，即使是空的
     
     def load_custom_dict(self):
@@ -2229,6 +2233,7 @@ class MainWindow(QMainWindow):
             
 
         result_entries = []  # 用于存储所有结果条目
+        processed_words = set()  # 用于记录已处理的词汇
         try:
             # 记录已处理的词的位置范围
             processed_ranges = []
@@ -2309,6 +2314,7 @@ class MainWindow(QMainWindow):
                                 
                                 # 记录这个位置已被处理
                                 processed_ranges.append((pos, pos + len(word)))
+                                processed_words.add(word)  # 添加到已处理词汇集合
                                 
                                 # 保存结果和位置信息
                                 processed_combinations.append((pos, line, word))
@@ -2370,6 +2376,7 @@ class MainWindow(QMainWindow):
                                 
                                 # 记录这个位置已被处理
                                 processed_ranges.append((pos, pos + len(word)))
+                                processed_words.add(word)  # 添加到已处理词汇集合
                                 
                                 # 保存结果和位置信息
                                 processed_combinations.append((pos, line, word))
@@ -2454,6 +2461,7 @@ class MainWindow(QMainWindow):
                                 
                                 # 记录这个位置已被处理
                                 processed_ranges.append((pos, pos + len(combined)))
+                                processed_words.add(combined)  # 添加到已处理词汇集合
                                 
                                 # 记录词的位置和结果
                                 processed_combinations.append((pos, line, combined))
@@ -2601,6 +2609,7 @@ class MainWindow(QMainWindow):
                         
                         # 记录这个位置已被处理
                         processed_ranges.append((word_pos, word_pos + len(word)))
+                        processed_words.add(word)  # 添加到已处理词汇集合
                         
                         # 记录词的位置和结果
                         result_entries.append((word_pos, line, word))
@@ -2616,11 +2625,144 @@ class MainWindow(QMainWindow):
             # 将排序后的结果组合成最终输出
             result = "\n".join([entry[1] for entry in result_entries])
             
+            # 根据配置决定是否执行冲突检测
+            if self.enable_conflict_detection:
+                # 检测可能的冲突
+                conflict_report = self.detect_conflicts(raw, processed_ranges, processed_words)
+                if conflict_report:
+                    result += "\n\n" + conflict_report
 
-            
             self.text_output.setPlainText(result.strip())
         except Exception as e:
             CustomMessageBox(self, "错误", str(e), style='error').exec()
+
+    def detect_conflicts(self, raw_text, processed_ranges, processed_words):
+        """检测词典规则冲突
+        
+        通过比较原文和已处理的区域，找出可能因为规则冲突而未被处理的词汇。
+        
+        Args:
+            raw_text: 原始文本
+            processed_ranges: 已处理的文本范围列表 [(start, end), ...]
+            processed_words: 已处理的词汇集合
+            
+        Returns:
+            str: 冲突报告，如果没有冲突则返回空字符串
+        """
+        # 如果文本太短或者没有处理任何内容，不进行冲突检测
+        if len(raw_text) < 2 or not processed_ranges:
+            return ""
+        
+        # 对处理范围进行排序
+        processed_ranges.sort()
+        
+        # 找出未处理的区域
+        unprocessed_ranges = []
+        last_end = 0
+        
+        for start, end in processed_ranges:
+            if start > last_end:
+                unprocessed_ranges.append((last_end, start))
+            last_end = max(last_end, end)
+        
+        # 添加最后一个未处理区域
+        if last_end < len(raw_text):
+            unprocessed_ranges.append((last_end, len(raw_text)))
+        
+        # 如果没有未处理的区域，返回空字符串
+        if not unprocessed_ranges:
+            return ""
+        
+        # 提取未处理区域的文本
+        unprocessed_texts = [raw_text[start:end] for start, end in unprocessed_ranges]
+        
+        # 过滤掉只包含空白字符的未处理区域
+        unprocessed_texts = [text for text in unprocessed_texts if text.strip()]
+        
+        # 如果没有有意义的未处理文本，返回空字符串
+        if not unprocessed_texts:
+            return ""
+        
+        # 检查未处理文本中是否包含日文字符
+        has_japanese_chars = False
+        for text in unprocessed_texts:
+            if any(
+                ord(char) in range(0x3040, 0x309F) or  # 平假名
+                ord(char) in range(0x30A0, 0x30FF) or  # 片假名
+                ord(char) in range(0x4E00, 0x9FFF)     # 汉字
+                for char in text
+            ):
+                has_japanese_chars = True
+                break
+        
+        # 如果未处理区域不包含日文字符，不报告冲突
+        if not has_japanese_chars:
+            return ""
+        
+        # 尝试分词未处理的文本，找出可能的冲突词汇
+        potential_conflicts = []
+        
+        for text in unprocessed_texts:
+            # 跳过纯空白文本
+            if not text.strip():
+                continue
+                
+            # 跳过纯标点符号或非日文文本
+            if not any(
+                ord(char) in range(0x3040, 0x309F) or  # 平假名
+                ord(char) in range(0x30A0, 0x30FF) or  # 片假名
+                ord(char) in range(0x4E00, 0x9FFF)     # 汉字
+                for char in text
+            ):
+                continue
+            
+            try:
+                # 分词
+                words = self.tagger(text)
+                
+                # 提取可能的冲突词汇
+                for word in words:
+                    surface = word.surface
+                    
+                    # 跳过空白和标点
+                    if not surface.strip() or all(ord(char) < 0x3040 for char in surface):
+                        continue
+                    
+                    # 检查是否包含日文字符
+                    if any(
+                        ord(char) in range(0x3040, 0x309F) or  # 平假名
+                        ord(char) in range(0x30A0, 0x30FF) or  # 片假名
+                        ord(char) in range(0x4E00, 0x9FFF)     # 汉字
+                        for char in surface
+                    ):
+                        # 如果这个词没有被处理过，添加到潜在冲突列表
+                        if surface not in processed_words and len(surface) > 1:  # 忽略单个字符
+                            potential_conflicts.append(surface)
+            except Exception:
+                # 如果分词失败，忽略这个文本块
+                continue
+        
+        # 如果没有找到潜在冲突，返回空字符串
+        if not potential_conflicts:
+            return ""
+        
+        # 生成冲突报告
+        conflict_report = "【词典规则冲突检测报告】\n"
+        conflict_report += "以下词汇可能因为规则冲突而未被正确处理：\n"
+        
+        # 去重并按长度降序排序
+        unique_conflicts = sorted(set(potential_conflicts), key=len, reverse=True)
+        
+        # 限制报告的词汇数量
+        max_conflicts = 10
+        if len(unique_conflicts) > max_conflicts:
+            conflict_report += ", ".join(unique_conflicts[:max_conflicts]) + f"... 等{len(unique_conflicts)}个词汇"
+        else:
+            conflict_report += ", ".join(unique_conflicts)
+        
+        conflict_report += "\n\n请检查您的词典规则是否存在冲突，或者将这些词汇添加到适当的词典中。"
+        
+        return conflict_report
 
     def convert_to_romaji(self, kana_text):
         """将假名转换为罗马音，正确处理促音和拗音"""
@@ -2802,35 +2944,67 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        layout = QVBoxLayout(dialog)
-        layout.setSpacing(16)
-        layout.setContentsMargins(24, 24, 24, 24)
+        # 设置窗口整体样式
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #f8f9fa;
+            }
+            QLabel[heading="true"] {
+                font-size: 16px;
+                font-weight: bold;
+                color: #333333;
+                margin-bottom: 8px;
+                padding-bottom: 4px;
+                border-bottom: 1px solid #e8e8e8;
+            }
+            QLabel[description="true"] {
+                font-size: 12px;
+                color: #666666;
+                margin-bottom: 8px;
+                margin-left: 4px;
+            }
+            QFrame[section="true"] {
+                background-color: white;
+                border: 1px solid #e1e4e8;
+                border-radius: 6px;
+                padding: 16px;
+                margin-bottom: 16px;
+            }
+        """)
+
+        # 创建主布局
+        main_layout = QVBoxLayout(dialog)
+        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(24, 24, 24, 24)
         
-        # 标题：词典设置
+        # ===== 创建两列布局 =====
+        columns_layout = QHBoxLayout()
+        columns_layout.setSpacing(16)
+        
+        # ===== 左列 =====
+        left_column = QVBoxLayout()
+        left_column.setSpacing(16)
+        
+        # ===== 词典设置部分 =====
+        dict_section = QFrame()
+        dict_section.setProperty("section", "true")
+        dict_layout = QVBoxLayout(dict_section)
+        dict_layout.setSpacing(12)
+        dict_layout.setContentsMargins(16, 16, 16, 16)
+        
+        # 标题
         dict_title = QLabel("词典默认路径设置")
-        dict_title.setStyleSheet("""
-            font-size: 16px;
-            font-weight: bold;
-            color: #333333;
-            margin-bottom: 8px;
-        """)
-        layout.addWidget(dict_title)
+        dict_title.setProperty("heading", "true")
+        dict_layout.addWidget(dict_title)
         
-        # 路径输入框
-        path_frame = QFrame()
-        path_frame.setStyleSheet("""
-            QFrame {
-                background-color: #fafafa;
-                border: 1px solid #d9d9d9;
-                border-radius: 4px;
-                padding: 8px;
-            }
-            QLabel {
-                background: transparent;
-            }
-        """)
-        path_layout = QHBoxLayout(path_frame)
-        path_layout.setContentsMargins(8, 8, 8, 8)
+        # 说明文本
+        dict_desc = QLabel("设置词典文件的默认保存路径，用于保存自定义词典数据。")
+        dict_desc.setProperty("description", "true")
+        dict_desc.setWordWrap(True)
+        dict_layout.addWidget(dict_desc)
+        
+        # 路径输入框和按钮
+        path_layout = QHBoxLayout()
         path_layout.setSpacing(8)
         
         path_edit = QLineEdit()
@@ -2843,9 +3017,10 @@ class MainWindow(QMainWindow):
                 padding: 8px;
                 background-color: white;
                 font-size: 13px;
+                min-height: 18px;
             }
             QLineEdit:focus {
-                border-color: #40a9ff;
+                border-color: #73BBA3;
             }
         """)
         path_layout.addWidget(path_edit)
@@ -2863,8 +3038,8 @@ class MainWindow(QMainWindow):
             }
             QPushButton:hover {
                 background-color: #fafafa;
-                border-color: #40a9ff;
-                color: #40a9ff;
+                border-color: #73BBA3;
+                color: #73BBA3;
             }
             QPushButton:pressed {
                 background-color: #f0f0f0;
@@ -2873,32 +3048,76 @@ class MainWindow(QMainWindow):
         select_button.clicked.connect(lambda: self.select_path(path_edit))
         path_layout.addWidget(select_button)
         
-        layout.addWidget(path_frame)
+        dict_layout.addLayout(path_layout)
+        left_column.addWidget(dict_section)
         
-        # 添加分隔线
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        separator.setStyleSheet("background-color: #d9d9d9; margin: 10px 0;")
-        layout.addWidget(separator)
+        # ===== 冲突检测设置部分 =====
+        conflict_section = QFrame()
+        conflict_section.setProperty("section", "true")
+        conflict_layout = QVBoxLayout(conflict_section)
+        conflict_layout.setSpacing(12)
+        conflict_layout.setContentsMargins(16, 16, 16, 16)
         
-        # 标题：托盘设置
-        tray_title = QLabel("托盘设置")
-        tray_title.setStyleSheet("""
-            font-size: 16px;
-            font-weight: bold;
+        # 标题
+        conflict_title = QLabel("词典规则冲突检测")
+        conflict_title.setProperty("heading", "true")
+        conflict_layout.addWidget(conflict_title)
+        
+        # 说明文本
+        conflict_desc = QLabel("启用此功能可以检测词典规则冲突导致的词汇丢失问题，并在转换结果中显示冲突报告。")
+        conflict_desc.setProperty("description", "true")
+        conflict_desc.setWordWrap(True)
+        conflict_layout.addWidget(conflict_desc)
+        
+        # 开关
+        self.conflict_detection_checkbox = SwitchCheckBox("启用词典规则冲突检测")
+        self.conflict_detection_checkbox.setChecked(self.enable_conflict_detection)
+        self.conflict_detection_checkbox.setStyleSheet("""
+            font-size: 14px;
             color: #333333;
-            margin-bottom: 8px;
+            margin-top: 4px;
         """)
-        layout.addWidget(tray_title)
+        conflict_layout.addWidget(self.conflict_detection_checkbox)
         
-        # 托盘设置部分直接使用主布局，不使用额外的框架
+        left_column.addWidget(conflict_section)
+        
+        # 将左列添加到列布局
+        columns_layout.addLayout(left_column)
+        
+        # ===== 右列 =====
+        right_column = QVBoxLayout()
+        right_column.setSpacing(16)
+        
+        # ===== 托盘设置部分 =====
+        tray_section = QFrame()
+        tray_section.setProperty("section", "true")
+        tray_layout = QVBoxLayout(tray_section)
+        tray_layout.setSpacing(12)
+        tray_layout.setContentsMargins(16, 16, 16, 16)
+        
+        # 标题
+        tray_title = QLabel("托盘设置")
+        tray_title.setProperty("heading", "true")
+        tray_layout.addWidget(tray_title)
+        
+        # 说明文本
+        tray_desc = QLabel("设置关闭窗口时的行为，可以选择最小化到系统托盘或完全退出程序。")
+        tray_desc.setProperty("description", "true")
+        tray_desc.setWordWrap(True)
+        tray_layout.addWidget(tray_desc)
+        
         # 获取当前配置
         config = self.load_config()
         show_close_prompt = not config.get("minimize_to_tray_without_asking", False)
         close_action = config.get("close_action", "minimize")
         
-        # 添加关闭提示选项
+        # 提示对话框选项
+        prompt_frame = QFrame()
+        prompt_frame.setStyleSheet("background: transparent; margin-top: 4px;")
+        prompt_layout = QVBoxLayout(prompt_frame)
+        prompt_layout.setContentsMargins(0, 0, 0, 8)
+        prompt_layout.setSpacing(4)
+        
         close_prompt_checkbox = SwitchCheckBox("关闭窗口时显示提示对话框")
         close_prompt_checkbox.setChecked(show_close_prompt)
         close_prompt_checkbox.setStyleSheet("""
@@ -2906,39 +3125,36 @@ class MainWindow(QMainWindow):
             color: #333333;
         """)
         close_prompt_checkbox.setObjectName("close_prompt_checkbox")  # 设置对象名称，方便后续查找
-        layout.addWidget(close_prompt_checkbox)
+        prompt_layout.addWidget(close_prompt_checkbox)
         
-        # 添加说明文本
         prompt_desc = QLabel("启用此选项后，关闭窗口时将显示提示对话框，询问是否最小化到托盘或退出程序。")
         prompt_desc.setWordWrap(True)
         prompt_desc.setStyleSheet("""
             font-size: 12px;
             color: #666666;
-            margin-left: 24px;
-            margin-bottom: 16px;
+            margin-left: 20px;
         """)
-        layout.addWidget(prompt_desc)
+        prompt_layout.addWidget(prompt_desc)
         
-        # 添加默认关闭行为选择
-        default_action_label = QLabel("默认关闭行为（当不显示提示对话框时）：")
-        default_action_label.setStyleSheet("""
+        tray_layout.addWidget(prompt_frame)
+        
+        # 默认关闭行为选项
+        action_label = QLabel("默认关闭行为（当不显示提示对话框时）：")
+        action_label.setStyleSheet("""
             font-size: 14px;
             color: #333333;
             margin-top: 8px;
         """)
-        layout.addWidget(default_action_label)
+        tray_layout.addWidget(action_label)
         
-        # 创建自定义单选按钮组
-        radio_group = QFrame()
-        radio_group.setStyleSheet("""
-            background-color: transparent;
-            margin-left: 24px;
-        """)
-        radio_layout = QVBoxLayout(radio_group)  # 改为垂直布局
-        radio_layout.setContentsMargins(0, 8, 0, 0)
-        radio_layout.setSpacing(12)  # 垂直间距
+        # 创建单选按钮组
+        radio_frame = QFrame()
+        radio_frame.setStyleSheet("background: transparent; margin-left: 24px;")
+        radio_layout = QVBoxLayout(radio_frame)
+        radio_layout.setContentsMargins(0, 4, 0, 0)
+        radio_layout.setSpacing(12)
         
-        # 自定义单选按钮样式
+        # 单选按钮样式
         radio_style = """
             QRadioButton {
                 font-size: 13px;
@@ -2952,14 +3168,6 @@ class MainWindow(QMainWindow):
                 height: 16px;
                 border-radius: 8px;
                 border: 1px solid #aaaaaa;
-                background-color: white;
-            }
-            
-            QRadioButton::indicator:checked {
-                width: 16px;
-                height: 16px;
-                border-radius: 8px;
-                border: 1px solid #73BBA3;
                 background-color: white;
             }
             
@@ -2992,8 +3200,7 @@ class MainWindow(QMainWindow):
         exit_radio.setStyleSheet(radio_style)
         radio_layout.addWidget(exit_radio)
         
-        # 添加单选按钮组
-        layout.addWidget(radio_group)
+        tray_layout.addWidget(radio_frame)
         
         # 添加说明文本
         action_desc = QLabel("选择关闭窗口时的默认行为，仅在不显示提示对话框时生效。")
@@ -3002,20 +3209,44 @@ class MainWindow(QMainWindow):
             font-size: 12px;
             color: #666666;
             margin-left: 24px;
-            margin-bottom: 16px;
         """)
-        layout.addWidget(action_desc)
+        tray_layout.addWidget(action_desc)
         
-        # 添加分隔线
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        separator.setStyleSheet("background-color: #e8e8e8; margin: 8px 0;")
-        layout.addWidget(separator)
+        right_column.addWidget(tray_section)
         
-        # 按钮区域
+        # 将右列添加到列布局
+        columns_layout.addLayout(right_column)
+        
+        # 将列布局添加到主布局
+        main_layout.addLayout(columns_layout)
+        
+        # ===== 按钮区域 =====
         button_layout = QHBoxLayout()
         button_layout.setSpacing(12)
+        
+        # 添加居中对齐
+        button_layout.addStretch()
+        
+        cancel_button = QPushButton("取消")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: white;
+                color: #333333;
+                border: 1px solid #d9d9d9;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: 13px;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                border-color: #F49BAB;
+                color: #F49BAB;
+            }
+            QPushButton:pressed {
+                background-color: #f5f5f5;
+            }
+        """)
+        cancel_button.clicked.connect(dialog.reject)
         
         save_button = QPushButton("保存设置")
         save_button.setStyleSheet("""
@@ -3032,42 +3263,23 @@ class MainWindow(QMainWindow):
                 background-color: #88D66C;
             }
             QPushButton:pressed {
-                background-color: #88D66C;
+                background-color: #5A9D8C;
             }
         """)
         save_button.clicked.connect(lambda: self.save_settings(path_edit, dialog))
         
-        cancel_button = QPushButton("取消")
-        cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #F49BAB;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-size: 13px;
-                min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #FFAAAA;
-            }
-            QPushButton:pressed {
-                background-color: #FF9898;
-            }
-        """)
-        cancel_button.clicked.connect(dialog.reject)
-        
-        button_layout.addWidget(save_button)
         button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
+        button_layout.addWidget(save_button)
+        button_layout.addStretch()
         
-        # 设置最小大小
-        dialog.setMinimumSize(500, 150)
+        main_layout.addLayout(button_layout)
         
-        # 在屏幕中央显示，强制定位在更高的位置
+        # 设置最小大小 - 更宽更扁平
+        dialog.setMinimumSize(950, 450)
+        
+        # 在屏幕中央显示
         screen = QApplication.primaryScreen().availableGeometry()
         dialog_size = dialog.size()
-        # 将垂直位置向上调整20%，使对话框更靠近屏幕上方
         y_position = int((screen.height() - dialog_size.height()) * 0.4)
         dialog.move(int((screen.width() - dialog_size.width()) / 2), y_position)
         dialog.exec()
@@ -3119,7 +3331,11 @@ class MainWindow(QMainWindow):
                 config["close_action"] = "minimize"
             elif exit_radio.isChecked():
                 config["close_action"] = "exit"
-
+        
+        # 保存冲突检测设置
+        if hasattr(self, 'conflict_detection_checkbox'):
+            self.enable_conflict_detection = self.conflict_detection_checkbox.isChecked()
+            config["enable_conflict_detection"] = self.enable_conflict_detection
         
         # 保存配置
         self.save_config(config)
@@ -3210,7 +3426,7 @@ class MainWindow(QMainWindow):
             print(f"加载图片失败: {str(e)}")
         
         # 版本信息
-        version_label = QLabel("版本: 0.3.2")
+        version_label = QLabel("版本: 0.3.3")
         version_label.setStyleSheet("""
             font-size: 14px;
             color: #1f1f1f;
