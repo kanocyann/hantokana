@@ -1589,141 +1589,6 @@ class DictEditDialog(QDialog):
 
 class MainWindow(QMainWindow):
     """主窗口"""
-    # 常见的单独助词
-    pure_particles = {
-        # 格助词
-        'が', 'の', 'を', 'に', 'へ', 'で', 'と', 'から', 'まで', 'より',
-        
-        # 提示助词
-        'は', 'も',
-        
-        # 接续助词
-        'て', 'で', 'ば', 'と', 'けど', 'けれど', 'が', 'のに', 'し',
-        
-        # 终助词
-        'か', 'な', 'ね', 'よ', 'わ', 'ぞ', 'ぜ', 'さ',
-        
-        # 副助词
-        'だけ', 'ばかり', 'まで', 'など', 'なり', 'くらい', 'ぐらい', 'しか',
-        
-        # 并列助词
-        'や', 'とか', 'だの',
-        
-        # 系助词
-        'だ', 'です', 'ます', 'である',
-        
-        # 其他
-        'って', 'じゃ'
-    }
-
-    # 常见的复合助词
-    compound_particles_map = {
-        # だ系列
-        ('だ', 'って'): 'だって',
-        ('だ', 'けど'): 'だけど',
-        ('だ', 'から'): 'だから',
-        ('だ', 'し'): 'だし',
-        ('じゃ', 'ない'): 'じゃない',
-        ('で', 'は'): 'では',
-        ('じゃ', 'ありません'): 'じゃありません',
-        
-        # て系列
-        ('て', 'いる'): 'ている',
-        ('て', 'いた'): 'ていた',
-        ('て', 'ない'): 'てない',
-        ('て', 'は'): 'ては',
-        ('て', 'も'): 'ても',
-        ('て', 'から'): 'てから',
-        
-        # って系列
-        ('って', 'いる'): 'っている',
-        ('って', 'いた'): 'っていた',
-        ('って', 'ない'): 'ってない',
-        
-        # に系列
-        ('に', 'は'): 'には',
-        ('に', 'も'): 'にも',
-        ('に', 'よって'): 'によって',
-        ('に', 'ついて'): 'について',
-        ('に', 'とって'): 'にとって',
-        ('に', 'おいて'): 'において',
-        ('に', 'よる'): 'による',
-        ('に', 'わたって'): 'にわたって',
-        ('に', 'したがって'): 'にしたがって',
-        ('に', 'かけて'): 'にかけて',
-        ('ため', 'に'): 'ために',
-        ('為', 'に'): 'ために',
-        
-        # の系列
-        ('の', 'は'): 'のは',
-        ('の', 'も'): 'のも',
-        ('の', 'で'): 'ので',
-        ('の', 'に'): 'のに',
-        
-        # と系列
-        ('と', 'は'): 'とは',
-        ('と', 'も'): 'とも',
-        ('と', 'して'): 'として',
-        ('と', 'しても'): 'としても',
-        
-        # から系列
-        ('から', 'は'): 'からは',
-        ('から', 'も'): 'からも',
-        ('から', 'の'): 'からの',
-        ('から', 'こそ'): 'からこそ',
-        
-        # まで系列
-        ('まで', 'は'): 'までは',
-        ('まで', 'も'): 'までも',
-        ('まで', 'の'): 'までの',
-        ('まで', 'に'): 'までに',
-        
-        # で系列
-        ('で', 'も'): 'でも',
-        ('で', 'は'): 'では',
-        ('で', 'の'): 'での',
-        
-        # へ系列
-        ('へ', 'は'): 'へは',
-        ('へ', 'も'): 'へも',
-        ('へ', 'の'): 'への',
-        
-        # その他
-        ('かも', 'しれない'): 'かもしれない',
-        ('なけれ', 'ば'): 'なければ',
-        ('みたい', 'だ'): 'みたいだ',
-        ('みたい', 'な'): 'みたいな',
-        ('よう', 'だ'): 'ようだ',
-        ('よう', 'な'): 'ような',
-        ('べき', 'だ'): 'べきだ',
-        ('はず', 'だ'): 'はずだ',
-        ('そう', 'だ'): 'そうだ',
-        ('そう', 'な'): 'そうな',
-        ('なん', 'て'): 'なんて',
-        ('なん', 'か'): 'なんか',
-        ('くらい', 'は'): 'くらいは',
-        ('ぐらい', 'は'): 'ぐらいは',
-        
-        # 常见指示词组合
-        ('それ', 'じゃ'): 'それじゃ',
-        ('それ', 'では'): 'それでは',
-        ('これ', 'じゃ'): 'これじゃ',
-        ('これ', 'では'): 'これでは',
-        ('あれ', 'じゃ'): 'あれじゃ',
-        ('あれ', 'では'): 'あれでは',
-        ('どれ', 'じゃ'): 'どれじゃ',
-        ('どれ', 'では'): 'どれでは',
-        
-        # 常见代词组合
-        ('わたし', 'は'): 'わたしは',
-        ('あなた', 'は'): 'あなたは',
-        ('かれ', 'は'): 'かれは',
-        ('かのじょ', 'は'): 'かのじょは',
-        ('だれ', 'が'): 'だれが',
-        ('なに', 'が'): 'なにが',
-        ('どこ', 'で'): 'どこで',
-        ('いつ', 'も'): 'いつも'
-    }
 
     def __init__(self):
         super().__init__()
@@ -2361,6 +2226,7 @@ class MainWindow(QMainWindow):
         if not (self.use_hira.isChecked() or self.use_kata.isChecked() or self.use_roma.isChecked()):
             CustomMessageBox(self, "警告", "请选择至少一个转换方式", style='warning').exec()
             return
+            
 
         result_entries = []  # 用于存储所有结果条目
         try:
@@ -2370,19 +2236,13 @@ class MainWindow(QMainWindow):
             # 进行正常分词处理（使用原始文本）
             words = self.tagger(raw)
             
-            # 定义常见的动词词尾
-            verb_endings = ['て', 'た', 'ない', 'ます', 'る', 'れる', 'せる', 'らる', 'られる', 'させる', 'てらっしゃい', 'でらっしゃい', 'ください', 'なさい', 'たり', 'だり', 'ちゃう', 'じゃう', 'てる', 'でる', 'とく', 'どく', 'とる', 'どる', 'てみる', 'でみる']
-            
-            # 定义常见的助动词和语气词组合
-            auxiliary_endings = ['たい', 'たく', 'たかっ', 'たけれ', 'たかろ', 'ない', 'なく', 'なかっ', 'なけれ', 'なかろ', 'ます', 'ました', 'ません', 'ませんでした', 'んだ', 'んです', 'のだ', 'のです', 'そうだ', 'そうです', 'ようだ', 'ようです', 'みたいだ', 'みたいです', 'はずだ', 'はずです', 'べきだ', 'べきです', 'ことになる', 'ことにする', 'ことがある', 'ことができる']
-            
-            # 定义需要优先作为整体处理的助动词组合
-            priority_compounds = ['いたいんだ', 'たいんだ', 'なければ', 'ならない', 'かもしれない', 'てしまう', 'でしまう', 'ていく', 'でいく', 'てくる', 'でくる', 'ておく', 'でおく', 'なければならない', 'ことができる', 'ようにする', 'ようにしている', 'ことになっている', 'ことにしている']
             
             # 从自定义词典中获取指示词和助词组合
             # 使用get方法确保即使词典中没有这个键也能返回空字典
             prefix_combinations = self.custom_dict.get("prefix_combinations", {})
             suffix_combinations = self.custom_dict.get("suffix_combinations", {})
+            
+
             
             # 先处理前缀组合，因为它们是特殊的组合
             # 在分词前先检查前缀组合
@@ -2516,17 +2376,25 @@ class MainWindow(QMainWindow):
                                 
                             start_pos = pos + 1
             
-            # 现在处理后缀组合
+            # 现在处理后缀组合 - 按组合长度降序排序，确保先处理更长的组合
+            suffix_combinations_list = []
             for word_base, particles in suffix_combinations.items():
                 for particle in particles:
                     combined = word_base + particle
-                    if combined in raw:
+                    suffix_combinations_list.append((combined, word_base, particle))
+            
+            # 按组合长度降序排序
+            suffix_combinations_list.sort(key=lambda x: len(x[0]), reverse=True)
+            
+            for combined, word_base, particle in suffix_combinations_list:
+                if combined in raw:
                         # 找出所有匹配项的位置
                         start_pos = 0
                         while True:
                             pos = raw.find(combined, start_pos)
                             if pos == -1:
                                 break
+                                
                                 
                             # 检查这个位置是否已经被处理过
                             already_processed = False
@@ -2598,7 +2466,7 @@ class MainWindow(QMainWindow):
                 # 尝试合并复合词
                 for j in range(len(words), i, -1):
                     combined = ''.join([w.surface for w in words[i:j]])
-                    if combined in self.custom_dict["compound_words"] or combined in priority_compounds:
+                    if combined in self.custom_dict["compound_words"]:
                         word = combined
                         i = j
                         break
@@ -2607,6 +2475,7 @@ class MainWindow(QMainWindow):
                     if i + 1 < len(words):
                         current_word = words[i].surface
                         next_word = words[i + 1].surface
+                        
                         
                         # 检查是否是常见的指示词+助词组合（后缀模式）
                         if current_word in prefix_combinations and next_word in prefix_combinations[current_word]:
@@ -2645,25 +2514,15 @@ class MainWindow(QMainWindow):
                         if found_suffix:
                             continue
                         
+                        
                         if current_word.endswith(('っ', 'ッ')):
                             # 合并促音和后续词
                             word = current_word + next_word
                             i += 2
                         else:
-                            # 检查复合助词
-                            found_compound = False
-                            for k in range(1, 4):  # 最多检查3个词的组合
-                                if i + k <= len(words):
-                                    word_tuple = tuple(w.surface for w in words[i:i+k])
-                                    if word_tuple in self.compound_particles_map:
-                                        word = self.compound_particles_map[word_tuple]
-                                        i += k
-                                        found_compound = True
-                                        break
-                            
-                            if not found_compound:
-                                word = words[i].surface
-                                i += 1
+                            # 直接使用当前词
+                            word = words[i].surface
+                            i += 1
                     else:
                         word = words[i].surface
                         i += 1
@@ -2756,6 +2615,8 @@ class MainWindow(QMainWindow):
             
             # 将排序后的结果组合成最终输出
             result = "\n".join([entry[1] for entry in result_entries])
+            
+
             
             self.text_output.setPlainText(result.strip())
         except Exception as e:
