@@ -40,7 +40,7 @@
 
 默认项设置
 
-![image-20250712204254506](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507122042554.png)
+![image-20250712234331770](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507122343838.png)
 
 ## 四・下载与使用
 
