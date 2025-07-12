@@ -36,7 +36,7 @@
 
 词典搜索页面
 
-![image-20250712204207779](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507122042854.png)
+![image-20250713003113972](https://cdn.jsdelivr.net/gh/kanocyann/PicGo@master/202507130031040.png)
 
 默认项设置
 
