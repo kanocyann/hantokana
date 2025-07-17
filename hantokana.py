@@ -2231,27 +2231,156 @@ class MainWindow(QMainWindow):
             CustomMessageBox(self, "警告", "请选择至少一个转换方式", style='warning').exec()
             return
             
-
         result_entries = []  # 用于存储所有结果条目
         processed_words = set()  # 用于记录已处理的词汇
         try:
             # 记录已处理的词的位置范围
             processed_ranges = []
             
-            # 进行正常分词处理（使用原始文本）
-            words = self.tagger(raw)
-            
-            
             # 从自定义词典中获取指示词和助词组合
             # 使用get方法确保即使词典中没有这个键也能返回空字典
             prefix_combinations = self.custom_dict.get("prefix_combinations", {})
             suffix_combinations = self.custom_dict.get("suffix_combinations", {})
+            compound_words = self.custom_dict.get("compound_words", {})
+            normal_words = self.custom_dict.get("normal_words", {})
             
-
+            # 在分词前先尝试直接匹配复合词和常见组合
+            # 创建一个包含所有可能词条的列表，按长度降序排序
+            all_possible_words = []
             
-            # 先处理前缀组合，因为它们是特殊的组合
-            # 在分词前先检查前缀组合
-            prefix_combinations = self.custom_dict.get("prefix_combinations", {})
+            # 添加复合词
+            for word in compound_words:
+                all_possible_words.append(word)
+            
+            # 添加普通词
+            for word in normal_words:
+                all_possible_words.append(word)
+            
+            # 添加后缀组合
+            for word_base, particles in suffix_combinations.items():
+                for particle in particles:
+                    all_possible_words.append(word_base + particle)
+            
+            # 添加前缀组合
+            for prefix, targets in prefix_combinations.items():
+                for target in targets:
+                    all_possible_words.append(prefix + target)
+                    all_possible_words.append(target + prefix)
+            
+            # 按长度降序排序，确保先匹配最长的词
+            all_possible_words.sort(key=len, reverse=True)
+            
+            # 创建一个列表，用于存储已处理的词和位置
+            processed_direct_matches = []
+            
+            # 直接在原文中查找这些词
+            for word in all_possible_words:
+                start_pos = 0
+                while True:
+                    pos = raw.find(word, start_pos)
+                    if pos == -1:
+                        break
+                    
+                    # 检查这个位置是否已经被处理过
+                    already_processed = False
+                    for start, end in processed_ranges:
+                        if (start <= pos < end) or (start < pos + len(word) <= end) or (pos <= start < pos + len(word)):
+                            already_processed = True
+                            break
+                    
+                    if already_processed:
+                        start_pos = pos + 1
+                        continue
+                    
+                    # 获取读音
+                    readings = None
+                    
+                    # 首先检查是否是复合词或普通词
+                    if word in compound_words:
+                        readings = compound_words[word]
+                    elif word in normal_words:
+                        readings = normal_words[word]
+                    else:
+                        # 检查是否是后缀组合
+                        for word_base, particles in suffix_combinations.items():
+                            if word.startswith(word_base) and word[len(word_base):] in particles:
+                                # 使用pykakasi转换
+                                converted = self.conv.convert(word)
+                                if converted:
+                                    # 提取读音（假名形式）
+                                    reading = ''.join([item.get('hira', item.get('orig', '')) for item in converted])
+                                    if reading:
+                                        readings = [reading]
+                                break
+                        
+                        # 如果不是后缀组合，检查是否是前缀组合
+                        if not readings:
+                            for prefix, targets in prefix_combinations.items():
+                                if (word.startswith(prefix) and word[len(prefix):] in targets) or \
+                                   (word.endswith(prefix) and word[:-len(prefix)] in targets):
+                                    # 使用pykakasi转换
+                                    converted = self.conv.convert(word)
+                                    if converted:
+                                        # 提取读音（假名形式）
+                                        reading = ''.join([item.get('hira', item.get('orig', '')) for item in converted])
+                                        if reading:
+                                            readings = [reading]
+                                    break
+                    
+                    # 如果仍然没有找到读音，使用pykakasi
+                    if not readings:
+                        # 使用pykakasi转换
+                        converted = self.conv.convert(word)
+                        if converted:
+                            # 提取读音（假名形式）
+                            reading = ''.join([item.get('hira', item.get('orig', '')) for item in converted])
+                            if reading:
+                                readings = [reading]
+                    
+                    # 处理所有读音
+                    if readings:
+                        line = f"[{word}]"
+                        
+                        if self.use_hira.isChecked():
+                            # 平假名：先统一转换为平假名
+                            hira_readings = []
+                            for reading in readings:
+                                # 如果是片假名，先转换为平假名
+                                hira_reading = jaconv.kata2hira(reading)
+                                hira_readings.append(hira_reading)
+                            line += f" → [{', '.join(hira_readings)}]"
+                        
+                        if self.use_kata.isChecked():
+                            # 片假名：先统一转换为平假名，再转换为片假名
+                            kata_readings = []
+                            for reading in readings:
+                                # 先统一转换为平假名，再转换为片假名
+                                hira_reading = jaconv.kata2hira(reading)
+                                kata_reading = jaconv.hira2kata(hira_reading)
+                                kata_readings.append(kata_reading)
+                            line += f" → [{', '.join(kata_readings)}]"
+                        
+                        if self.use_roma.isChecked():
+                            # 罗马音：先统一转换为平假名，再转换为罗马音
+                            roma_readings = []
+                            for reading in readings:
+                                # 先统一转换为平假名
+                                hira_reading = jaconv.kata2hira(reading)
+                                roma_reading = self.convert_to_romaji(hira_reading)
+                                roma_readings.append(roma_reading)
+                            line += f" → [{', '.join(roma_readings)}]"
+                        
+                        # 记录这个位置已被处理
+                        processed_ranges.append((pos, pos + len(word)))
+                        processed_words.add(word)  # 添加到已处理词汇集合
+                        
+                        # 保存结果和位置信息
+                        processed_direct_matches.append((pos, line, word))
+                    
+                    start_pos = pos + 1
+            
+            # 进行正常分词处理（使用原始文本）
+            words = self.tagger(raw)
             
             # 记录已处理的组合及其在原文中的位置
             processed_combinations = []
@@ -2268,6 +2397,17 @@ class MainWindow(QMainWindow):
                             pos = raw.find(word, start_pos)
                             if pos == -1:
                                 break
+                                
+                            # 检查这个位置是否已经被处理过
+                            already_processed = False
+                            for start, end in processed_ranges:
+                                if (start <= pos < end) or (start < pos + len(word) <= end) or (pos <= start < pos + len(word)):
+                                    already_processed = True
+                                    break
+                            
+                            if already_processed:
+                                start_pos = pos + 1
+                                continue
                                 
                             readings = []
                             
@@ -2330,6 +2470,17 @@ class MainWindow(QMainWindow):
                             pos = raw.find(word, start_pos)
                             if pos == -1:
                                 break
+                                
+                            # 检查这个位置是否已经被处理过
+                            already_processed = False
+                            for start, end in processed_ranges:
+                                if (start <= pos < end) or (start < pos + len(word) <= end) or (pos <= start < pos + len(word)):
+                                    already_processed = True
+                                    break
+                            
+                            if already_processed:
+                                start_pos = pos + 1
+                                continue
                                 
                             readings = []
                             
@@ -2401,7 +2552,6 @@ class MainWindow(QMainWindow):
                             pos = raw.find(combined, start_pos)
                             if pos == -1:
                                 break
-                                
                                 
                             # 检查这个位置是否已经被处理过
                             already_processed = False
@@ -2484,7 +2634,6 @@ class MainWindow(QMainWindow):
                         current_word = words[i].surface
                         next_word = words[i + 1].surface
                         
-                        
                         # 检查是否是常见的指示词+助词组合（后缀模式）
                         if current_word in prefix_combinations and next_word in prefix_combinations[current_word]:
                             word = current_word + next_word
@@ -2521,7 +2670,6 @@ class MainWindow(QMainWindow):
                         
                         if found_suffix:
                             continue
-                        
                         
                         if current_word.endswith(('っ', 'ッ')):
                             # 合并促音和后续词
@@ -2615,6 +2763,9 @@ class MainWindow(QMainWindow):
                         result_entries.append((word_pos, line, word))
                     
                     word_start_pos = word_pos + 1
+            
+            # 将直接匹配的结果添加到结果列表中
+            result_entries.extend(processed_direct_matches)
             
             # 将前缀和后缀组合处理的结果合并到所有结果中
             result_entries.extend(processed_combinations)
@@ -2802,6 +2953,8 @@ class MainWindow(QMainWindow):
                                 romaji += roma
                         i += 2
                 else:
+                    # 如果促音在末尾，添加一个促音符号
+                    romaji += "t"
                     i += 1
             elif (i + 1 < len(kana_text) and 
                 kana_text[i + 1] in ['ゃ', 'ゅ', 'ょ', 'ャ', 'ュ', 'ョ']):
@@ -2818,7 +2971,25 @@ class MainWindow(QMainWindow):
                     romaji += char_result[0].get('hepburn', '')
                 i += 1
         
-        return romaji
+        # 添加空格使罗马音更易读
+        romaji_with_spaces = ""
+        i = 0
+        while i < len(romaji):
+            # 找到下一个元音的位置
+            j = i
+            while j < len(romaji) and romaji[j] not in 'aeiou':
+                j += 1
+            
+            # 如果找到元音，将这个音节添加到结果中
+            if j < len(romaji):
+                romaji_with_spaces += romaji[i:j+1] + " "
+                i = j + 1
+            else:
+                # 如果没有找到更多元音，添加剩余部分
+                romaji_with_spaces += romaji[i:]
+                break
+        
+        return romaji_with_spaces.strip()
 
    
     def copy_result(self):
@@ -3945,7 +4116,36 @@ class DictSearchDialog(QDialog):
         self.page_size_combo.setFrame(True)      # 显示边框
         self.page_size_combo.setMaxVisibleItems(4)  # 最多显示4项
         self.page_size_combo.currentTextChanged.connect(self.on_page_size_changed)
-        self.page_size_combo.setStyleSheet("""
+        
+        # 获取箭头SVG文件的路径
+        arrow_path = ""
+        try:
+            # 确保SVG文件存在于程序目录中
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            svg_path = os.path.join(current_dir, "arrow.svg")
+            
+            # 如果SVG文件不存在，则创建它
+            if not os.path.exists(svg_path):
+                # SVG内容
+                svg_content = """<?xml version="1.0" standalone="no"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg t="1752336801888" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="4885" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200"><path d="M483.072 714.496l30.165333 30.208 415.957334-415.829333a42.837333 42.837333 0 0 0 0-60.288 42.538667 42.538667 0 0 0-60.330667-0.042667l-355.541333 355.413333-355.242667-355.413333a42.496 42.496 0 0 0-60.288 0 42.837333 42.837333 0 0 0-0.085333 60.330667l383.701333 383.872 1.706667 1.749333z" fill="#666666" p-id="4886"></path></svg>"""
+                
+                # 写入SVG文件
+                with open(svg_path, 'w', encoding='utf-8') as f:
+                    f.write(svg_content)
+            
+            # 使用resource_path方法获取正确的路径
+            if hasattr(self.parent, 'resource_path'):
+                arrow_path = self.parent.resource_path("arrow.svg")
+            else:
+                # 如果父窗口没有resource_path方法，使用绝对路径
+                arrow_path = svg_path
+        except Exception as e:
+            print(f"无法创建或获取SVG文件路径: {e}")
+            # 如果获取路径失败，使用默认路径
+            arrow_path = "arrow.svg"
+            
+        # 设置样式，使用字符串替换插入SVG路径
+        style_template = """
             QComboBox {
                 border: 1px solid #d9d9d9;
                 border-radius: 3px;
@@ -3962,18 +4162,15 @@ class DictSearchDialog(QDialog):
             QComboBox::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: center right;
-                width: 16px;
-                border-left: 1px solid #d9d9d9;
-                border-top-right-radius: 3px;
-                border-bottom-right-radius: 3px;
-                background-color: #f5f5f5;
+                width: 20px;
+                border: none;
             }
             QComboBox::down-arrow {
-                width: 0;
-                height: 0;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid #666666;
+                image: url(ARROW_PATH_PLACEHOLDER);
+                width: 10px;
+                height: 10px;
+                margin-right: 5px;
+                margin-top: 1px;
             }
             /* 下拉列表样式 */
             QComboBox QAbstractItemView {
@@ -3993,7 +4190,11 @@ class DictSearchDialog(QDialog):
                 background-color: #E8F5E9;
                 color: #333333;
             }
-        """)
+        """
+        
+        # 替换样式模板中的占位符
+        style = style_template.replace('ARROW_PATH_PLACEHOLDER', f'"{arrow_path.replace("\\", "/")}"')
+        self.page_size_combo.setStyleSheet(style)
         
         # 不再需要提前创建分页布局，我们将在底部直接添加
         
