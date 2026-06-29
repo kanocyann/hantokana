@@ -30,7 +30,6 @@
 2. 拆分转换流程、词典核心逻辑、词典编辑窗口、词典搜索窗口和 UI 公共组件，便于后续维护。
 3. 修复词典搜索表格行高拖动、最后一行遮挡和底部间距问题。
 4. 优化词典搜索表格复制逻辑，复制高亮结果时不再带入 HTML 标签。
-5. 本地个人配置 `config.json` 不再提交到仓库，改为提供 `config.example.json` 示例。
 
 ## 三・应用截图
 
@@ -86,7 +85,7 @@ python hantokana.py
 %APPDATA%\Hantokana\config.json
 ```
 
-仓库中的 `config.example.json` 仅作为配置字段示例，真实的 `config.json` 属于个人本地配置，不需要提交到 GitHub。
+仓库中的 `config.example.json` 仅作为配置字段示例，真实的 `config.json` 属于个人本地配置。
 
 ### 目录结构
 
