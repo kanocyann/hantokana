@@ -24,6 +24,14 @@
 
 5. 词典搜索功能，支持多关键词搜索和词条类型筛选
 
+### v0.4.0 更新
+
+1. 重构项目结构，主程序入口保留为 `hantokana.py`，应用代码移动到 `hantokana_app/` 包目录。
+2. 拆分转换流程、词典核心逻辑、词典编辑窗口、词典搜索窗口和 UI 公共组件，便于后续维护。
+3. 修复词典搜索表格行高拖动、最后一行遮挡和底部间距问题。
+4. 优化词典搜索表格复制逻辑，复制高亮结果时不再带入 HTML 标签。
+5. 本地个人配置 `config.json` 不再提交到仓库，改为提供 `config.example.json` 示例。
+
 ## 三・应用截图
 
 主界面
@@ -68,6 +76,28 @@ pip install -r requirements.txt
 
 ```shell
 python hantokana.py
+```
+
+### 配置文件
+
+程序会在首次运行或保存设置时自动在用户配置目录生成配置文件：
+
+```text
+%APPDATA%\Hantokana\config.json
+```
+
+仓库中的 `config.example.json` 仅作为配置字段示例，真实的 `config.json` 属于个人本地配置，不需要提交到 GitHub。
+
+### 目录结构
+
+```text
+hantokana.py          # 程序入口
+hantokana_app/        # 应用代码
+test_*.py             # 单元测试
+custom_dict.json      # 默认词典模板
+config.example.json   # 配置文件示例
+dicdir/               # MeCab/UniDic 运行资源
+pykakasi/             # pykakasi 数据资源
 ```
 
 ## 五・词典功能说明
@@ -126,12 +156,12 @@ python hantokana.py
 
 这样可以正确处理"まで今"这样的前缀组合。
 
-#### 4. common_combinations(后缀组合)
+#### 4. suffix_combinations(后缀组合)
 
 包含常见的指示词和助词组合，用于改善分词效果：
 
 ```json
-"common_combinations": {
+"suffix_combinations": {
   "指示词/代词": ["助词1", "助词2", ...]
 }
 ```
@@ -175,4 +205,3 @@ python hantokana.py
 ## 六・写在最后
 
 如果觉得这个工具好玩的话就点一个小STAR✨吧
-
