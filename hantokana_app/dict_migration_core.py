@@ -22,6 +22,9 @@ SOURCE_LABELS = {
     SOURCE_MISSING: "未找到",
 }
 
+DELETE_MARKED = "marked"
+DELETE_REMOVED = "removed"
+
 
 def _dedupe(values):
     merged = []
@@ -79,7 +82,8 @@ def prune_redundant_custom_entries(official_dict, custom_dict):
         official_bucket = official.get(group, {})
         for word, custom_value in custom.get(group, {}).items():
             if is_deleted_marker(custom_value):
-                pruned[group][word] = []
+                if word in official_bucket:
+                    pruned[group][word] = []
                 continue
             if word in official_bucket and custom_value == official_bucket[word]:
                 continue
@@ -92,6 +96,19 @@ def build_effective_dict_cache(official_dict, custom_dict):
     return merge_official_and_custom_dicts(official_dict, custom_dict)
 
 
+def delete_custom_entry(official_dict, custom_dict, group, word):
+    official = normalize_custom_dict_payload(official_dict)
+    custom = normalize_custom_dict_payload(custom_dict)
+    bucket = custom.setdefault(group, {})
+
+    if word in official.get(group, {}):
+        bucket[word] = []
+        return ensure_custom_dict_schema(custom), DELETE_MARKED
+
+    bucket.pop(word, None)
+    return ensure_custom_dict_schema(custom), DELETE_REMOVED
+
+
 def dict_entry_source(official_dict, custom_dict, group, word):
     official = normalize_custom_dict_payload(official_dict)
     custom = normalize_custom_dict_payload(custom_dict)
@@ -99,8 +116,10 @@ def dict_entry_source(official_dict, custom_dict, group, word):
     in_custom = word in custom.get(group, {})
     custom_value = custom.get(group, {}).get(word)
 
-    if in_custom and is_deleted_marker(custom_value):
+    if in_official and in_custom and is_deleted_marker(custom_value):
         return SOURCE_DELETED
+    if in_custom and is_deleted_marker(custom_value):
+        return SOURCE_MISSING
     if in_official and in_custom:
         return SOURCE_OVERRIDE
     if in_custom:

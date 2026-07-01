@@ -32,10 +32,13 @@ from .dict_dialog_styles import (
 )
 from .dict_view_core import get_dict_type_meta
 from .dict_migration_core import (
+    DELETE_MARKED,
+    DELETE_REMOVED,
     SOURCE_CUSTOM,
     SOURCE_DELETED,
     SOURCE_OFFICIAL,
     SOURCE_OVERRIDE,
+    delete_custom_entry,
     dict_entry_source,
     source_label,
 )
@@ -437,14 +440,22 @@ class DictEditDialog(QDialog):
         
         dialog = CustomMessageBox(self, "确认删除", "确定要删除选中的词条吗？", style='question')
         if dialog.exec() == QDialog.Accepted:
-            tombstone_words = []
-            custom_bucket = self.custom_dict.setdefault(self.word_type, {})
+            marked_count = 0
+            removed_count = 0
             for item in selected_items:
                 word = item.data(ROLE_WORD)
                 if not word:
                     word, _values = parse_entry_display_text(item.text())
-                custom_bucket[word] = []
-                tombstone_words.append(word)
+                self.custom_dict, action = delete_custom_entry(
+                    self.official_dict,
+                    self.custom_dict,
+                    self.word_type,
+                    word,
+                )
+                if action == DELETE_MARKED:
+                    marked_count += 1
+                elif action == DELETE_REMOVED:
+                    removed_count += 1
             
             self.update_dict_view()
             
@@ -458,8 +469,14 @@ class DictEditDialog(QDialog):
             except Exception as e:
                 CustomMessageBox(self, "错误", f"保存词条时出错: {str(e)}", style='error').exec()
                 return
-            
-            CustomMessageBox(self, "成功", "已在用户词典中记录删除标记", style='success').exec()
+
+            if marked_count and removed_count:
+                message = "官方词条已记录删除标记，我的词条已从用户词典移除。"
+            elif marked_count:
+                message = "已在用户词典中记录官方词条删除标记。"
+            else:
+                message = "已从用户词典中删除。"
+            CustomMessageBox(self, "成功", message, style='success').exec()
     
     def copy_all(self):
         """复制所有词条"""
