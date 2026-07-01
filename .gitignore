@@ -6,8 +6,12 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+.venv/
+.venv_build/
+.agents/
+
 build/
 dist/
-*.spec
+output/
 
 config.json

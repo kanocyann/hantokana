@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QVBoxLayout,
+    QSizePolicy,
 )
 
 from .dict_edit_core import (
@@ -59,7 +60,8 @@ class DictEditDialog(QDialog):
         self.setWindowTitle(f"编辑{meta['dialog_title']}词典")
         self.setWindowFlags(Qt.Window)
         self.setModal(True)
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(920, 680)
+        self.setStyleSheet("QDialog { background-color: #f4f6f8; }")
         
         # 设置窗口图标 - 添加错误处理
         try:
@@ -67,23 +69,33 @@ class DictEditDialog(QDialog):
         except Exception:
             pass
         
-        # 创建布局
         layout = QVBoxLayout(self)
-        layout.setSpacing(16)
-        layout.setContentsMargins(24, 24, 24, 24)
-        
-        # 路径显示
+        layout.setSpacing(14)
+        layout.setContentsMargins(18, 18, 18, 18)
+
+        header = QFrame()
+        header.setProperty("card", "true")
+        header.setAttribute(Qt.WA_StyledBackground, True)
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(16, 14, 16, 14)
+        header_layout.setSpacing(6)
+
+        title_label = QLabel(f"编辑 {meta['dialog_title']} 词典")
+        title_label.setProperty("title", "true")
+        header_layout.addWidget(title_label)
+
         path_label = QLabel(f"当前词典文件路径: {parent.current_dict_path}")
         path_label.setStyleSheet(PATH_LABEL_STYLE)
-        layout.addWidget(path_label)
-        
-        # 输入区域
-        input_frame = QFrame()
-        input_frame.setFrameStyle(QFrame.StyledPanel)
-        input_frame.setStyleSheet(PANEL_FRAME_STYLE)
-        input_layout = QVBoxLayout(input_frame)
-        input_layout.setSpacing(8)  # 减小间距
-        input_layout.setContentsMargins(12, 12, 12, 12)  # 设置内边距
+        path_label.setWordWrap(True)
+        header_layout.addWidget(path_label)
+        layout.addWidget(header)
+
+        form_card = QFrame()
+        form_card.setProperty("card", "true")
+        form_card.setAttribute(Qt.WA_StyledBackground, True)
+        input_layout = QVBoxLayout(form_card)
+        input_layout.setSpacing(10)
+        input_layout.setContentsMargins(16, 16, 16, 16)
         
         # 添加标签，去掉底框线
         word_label = QLabel(meta["word_label"])
@@ -105,11 +117,10 @@ class DictEditDialog(QDialog):
         self.readings_edit.setStyleSheet(COMPACT_LINE_EDIT_STYLE)
         input_layout.addWidget(self.readings_edit)
         
-        layout.addWidget(input_frame)
-        
-        # 按钮区域
+        layout.addWidget(form_card)
+
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(12)
+        button_layout.setSpacing(10)
         
         add_button = QPushButton("保存词条")
         add_button.setStyleSheet(action_button_style("#73BBA3", "#88D66C", "#5A9D8C"))
@@ -133,16 +144,23 @@ class DictEditDialog(QDialog):
         button_layout.addWidget(copy_all_button)
         
         layout.addLayout(button_layout)
-        
-        # 词典列表
+
+        list_card = QFrame()
+        list_card.setProperty("card", "true")
+        list_card.setAttribute(Qt.WA_StyledBackground, True)
+        list_layout = QVBoxLayout(list_card)
+        list_layout.setContentsMargins(12, 12, 12, 12)
+        list_layout.setSpacing(8)
+
         self.list_widget = QListWidget()
         self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.list_widget.customContextMenuRequested.connect(self.show_context_menu)
         self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
         self.list_widget.setStyleSheet(DICT_LIST_STYLE)
-        layout.addWidget(self.list_widget)
-        
-        # 选中即复制选项
+        self.list_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        list_layout.addWidget(self.list_widget)
+        layout.addWidget(list_card, 1)
+
         copy_layout = QHBoxLayout()
         copy_layout.addStretch()
         self.copy_on_select = SwitchCheckBox("选中即复制")

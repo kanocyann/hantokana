@@ -1,9 +1,23 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from .ui_controls import CustomCheckBox
 from .ui_utils import center_on_parent, icon_path_exists
+
+
+def _fade_in(widget, duration=140):
+    try:
+        widget.setWindowOpacity(0.0)
+        animation = QPropertyAnimation(widget, b"windowOpacity", widget)
+        animation.setDuration(duration)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setEasingCurve(QEasingCurve.OutCubic)
+        animation.start()
+        widget._fade_animation = animation
+    except Exception:
+        pass
 
 
 class CustomMessageBox(QDialog):
@@ -24,9 +38,9 @@ class CustomMessageBox(QDialog):
 
         self.setStyleSheet("""
             QDialog {
-                background-color: #fafafa;
+                background-color: #f7f8fb;
                 border: 0px solid;
-                border-radius: 8px;
+                border-radius: 10px;
             }
             QLabel {
                 background: transparent;
@@ -35,17 +49,20 @@ class CustomMessageBox(QDialog):
                 padding: 0px;
             }
             QPushButton {
-                border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
+                border: 1px solid #d9d9d9;
+                background: white;
+                padding: 7px 14px;
+                border-radius: 6px;
                 font-size: 13px;
                 min-width: 60px;
+                color: #1f1f1f;
             }
             QPushButton:hover {
-                background-color: rgba(0, 0, 0, 0.05);
+                background-color: #eef8f3;
+                border-color: #73BBA3;
             }
             QPushButton:pressed {
-                background-color: rgba(0, 0, 0, 0.1);
+                background-color: #e3f2eb;
             }
             QCheckBox {
                 font-size: 12px;
@@ -79,7 +96,7 @@ class CustomMessageBox(QDialog):
 
         icon_label.setStyleSheet(f"""
             QLabel {{
-                font-size: 24px;
+                font-size: 26px;
                 color: {color};
                 background: transparent;
                 border: 0px solid;
@@ -95,7 +112,7 @@ class CustomMessageBox(QDialog):
         message_label.setStyleSheet("""
             QLabel {
                 font-size: 13px;
-                color: #1f1f1f;
+                color: #202124;
                 background: transparent;
                 border: 0px solid;
                 margin: 0px;
@@ -124,9 +141,9 @@ class CustomMessageBox(QDialog):
                 QPushButton {{
                     background-color: {color};
                     color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    border-radius: 4px;
+                    border: 1px solid {color};
+                    padding: 7px 14px;
+                    border-radius: 6px;
                     font-size: 13px;
                     min-width: 60px;
                 }}
@@ -140,19 +157,20 @@ class CustomMessageBox(QDialog):
             no_button = QPushButton("否")
             no_button.setStyleSheet("""
                 QPushButton {
-                    background-color: #f5f5f5;
-                    color: #666;
-                    border: none;
-                    padding: 6px 12px;
-                    border-radius: 4px;
+                    background-color: #ffffff;
+                    color: #555;
+                    border: 1px solid #d9d9d9;
+                    padding: 7px 14px;
+                    border-radius: 6px;
                     font-size: 13px;
                     min-width: 60px;
                 }
                 QPushButton:hover {
-                    background-color: #e8e8e8;
+                    background-color: #eef8f3;
+                    border-color: #73BBA3;
                 }
                 QPushButton:pressed {
-                    background-color: #d9d9d9;
+                    background-color: #e3f2eb;
                 }
             """)
             self.ok_button.clicked.connect(self.accept)
@@ -165,9 +183,9 @@ class CustomMessageBox(QDialog):
                 QPushButton {{
                     background-color: {color};
                     color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    border-radius: 4px;
+                    border: 1px solid {color};
+                    padding: 7px 14px;
+                    border-radius: 6px;
                     font-size: 13px;
                     min-width: 60px;
                 }}
@@ -184,6 +202,7 @@ class CustomMessageBox(QDialog):
         layout.addLayout(self.button_layout)
         self.setFixedWidth(300)
         center_on_parent(self, parent)
+        _fade_in(self)
 
 
 class MessageDialog(QDialog):
@@ -278,3 +297,4 @@ class MessageDialog(QDialog):
         layout.addWidget(ok_button, alignment=Qt.AlignCenter)
 
         center_on_parent(self, parent)
+        _fade_in(self)

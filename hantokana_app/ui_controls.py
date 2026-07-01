@@ -2,6 +2,13 @@ from PySide6.QtCore import Qt, QRect, QSize, QMimeData
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QCheckBox, QTextEdit
 
+from .ui_styles import (
+    APP_BACKGROUND_COLOR,
+    BORDER_COLOR,
+    PRIMARY_COLOR,
+    TEXT_COLOR,
+)
+
 
 class CustomCheckBox(QCheckBox):
     """自定义复选框，支持绿色背景和勾选图标"""
@@ -12,7 +19,7 @@ class CustomCheckBox(QCheckBox):
             QCheckBox {
                 font-size: 13px;
                 spacing: 8px;
-                color: #1f1f1f;
+                color: #202124;
                 background: transparent;
                 padding: 0px;
                 margin: 0px;
@@ -28,7 +35,7 @@ class CustomCheckBox(QCheckBox):
         rect = self.rect()
         text_rect = rect.adjusted(32, 0, 0, 0)
 
-        painter.setPen(QColor("#1f1f1f"))
+        painter.setPen(QColor(TEXT_COLOR))
         painter.setFont(self.font())
         painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, self.text())
 
@@ -37,13 +44,13 @@ class CustomCheckBox(QCheckBox):
         checkbox_rect = QRect(checkbox_x, checkbox_y, 18, 18)
 
         if self.isChecked():
-            painter.setBrush(QColor("#73BBA3"))
-            painter.setPen(QColor("#73BBA3"))
+            painter.setBrush(QColor(PRIMARY_COLOR))
+            painter.setPen(QColor(PRIMARY_COLOR))
         else:
-            painter.setBrush(QColor("white"))
-            painter.setPen(QColor("#d9d9d9"))
+            painter.setBrush(QColor(APP_BACKGROUND_COLOR))
+            painter.setPen(QColor(BORDER_COLOR))
 
-        painter.drawRoundedRect(checkbox_rect, 3, 3)
+        painter.drawRoundedRect(checkbox_rect, 4, 4)
 
         if self.isChecked():
             painter.setPen(QPen(QColor("white"), 2))
@@ -52,7 +59,7 @@ class CustomCheckBox(QCheckBox):
 
     def sizeHint(self):
         text_width = self.fontMetrics().horizontalAdvance(self.text())
-        return QSize(text_width + 40, 30)
+        return QSize(text_width + 44, 30)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -69,7 +76,7 @@ class SwitchCheckBox(QCheckBox):
             QCheckBox {
                 font-size: 13px;
                 spacing: 8px;
-                color: #1f1f1f;
+                color: #202124;
                 background: transparent;
                 padding: 0px;
                 margin: 0px;
@@ -85,25 +92,25 @@ class SwitchCheckBox(QCheckBox):
         rect = self.rect()
         text_rect = rect.adjusted(50, 0, 0, 0)
 
-        painter.setPen(QColor("#1f1f1f"))
+        painter.setPen(QColor(TEXT_COLOR))
         painter.setFont(self.font())
         painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, self.text())
 
         switch_x = 8
         switch_y = (rect.height() - 20) // 2
-        switch_rect = QRect(switch_x, switch_y, 36, 20)
+        switch_rect = QRect(switch_x, switch_y, 38, 20)
 
         if self.isChecked():
-            painter.setBrush(QColor("#73BBA3"))
-            painter.setPen(QColor("#73BBA3"))
+            painter.setBrush(QColor(PRIMARY_COLOR))
+            painter.setPen(QColor(PRIMARY_COLOR))
         else:
-            painter.setBrush(QColor("#f5f5f5"))
-            painter.setPen(QColor("#d9d9d9"))
+            painter.setBrush(QColor("#e7edf2"))
+            painter.setPen(QColor(BORDER_COLOR))
 
         painter.drawRoundedRect(switch_rect, 10, 10)
 
         if self.isChecked():
-            slider_x = switch_x + 18
+            slider_x = switch_x + 20
         else:
             slider_x = switch_x + 2
 
@@ -114,7 +121,7 @@ class SwitchCheckBox(QCheckBox):
 
     def sizeHint(self):
         text_width = self.fontMetrics().horizontalAdvance(self.text())
-        return QSize(text_width + 52, 24)
+        return QSize(text_width + 56, 24)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

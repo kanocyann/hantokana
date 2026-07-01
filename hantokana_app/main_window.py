@@ -1,19 +1,24 @@
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDialog,
     QFileDialog,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenu,
+    QSizePolicy,
     QPushButton,
     QRadioButton,
+    QSplitter,
     QTextEdit,
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEasingCurve, QPropertyAnimation
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
 import pykakasi
 from fugashi import Tagger
@@ -31,6 +36,12 @@ from .ui_shared import (
 from .storage_core import (
     get_dict_path as storage_get_dict_path,
     get_config_path as storage_get_config_path,
+    get_official_dict_state_path as storage_get_official_dict_state_path,
+    official_dict_needs_sync as storage_official_dict_needs_sync,
+    load_official_dict_state as storage_load_official_dict_state,
+    save_official_dict_state as storage_save_official_dict_state,
+    load_official_dict as storage_load_official_dict,
+    build_official_dict_snapshot as storage_build_official_dict_snapshot,
     resource_path as storage_resource_path,
     load_config as storage_load_config,
     save_config as storage_save_config,
@@ -43,9 +54,29 @@ from .app_dialogs import (
     build_close_choice_dialog,
     build_settings_dialog,
 )
+from .app_config import (
+    APP_VERSION,
+    DICT_MERGE_POLICY_ASK,
+    DICT_MERGE_POLICY_KEEP_LOCAL,
+    DICT_MERGE_POLICY_REPLACE_OFFICIAL,
+)
 from .conversion_service import convert_text_payload
+from .dict_migration_core import (
+    build_official_dict_sync_plan,
+    resolve_official_dict_sync,
+    action_label,
+)
 from .dict_dialogs import DictEditDialog, DictSearchDialog
-from .ui_styles import MAIN_TEXT_EDIT_STYLE, PRIMARY_ACTION_BUTTON_STYLE, SECTION_LABEL_STYLE
+from .ui_styles import (
+    BADGE_LABEL_STYLE,
+    MAIN_TEXT_EDIT_STYLE,
+    MAIN_WINDOW_STYLE_SHEET,
+    PRIMARY_ACTION_BUTTON_STYLE,
+    SECONDARY_ACTION_BUTTON_STYLE,
+    SECTION_LABEL_STYLE,
+    SUBTLE_LABEL_STYLE,
+    TERTIARY_ACTION_BUTTON_STYLE,
+)
 
 class MainWindow(QMainWindow):
     """主窗口"""
@@ -53,7 +84,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("日文汉字-假名/罗马音 转换工具")
-        self.setMinimumSize(850, 700)
+        self.setMinimumSize(1000, 720)
+        self.setStyleSheet(MAIN_WINDOW_STYLE_SHEET)
         
         # 设置窗口图标
         icon_path = storage_resource_path("icon.ico", __file__)
@@ -95,6 +127,9 @@ class MainWindow(QMainWindow):
         self.conv = None
         self.dict_search_dialog = None  # 添加词典搜索对话框变量
         self.enable_conflict_detection = True  # 默认启用冲突检测
+        self.official_dict_merge_policy = DICT_MERGE_POLICY_ASK
+        self.official_dict_state_path = storage_get_official_dict_state_path()
+        self._window_fade_animation = None
         
         # 加载配置和字典
         self.load_config()
@@ -108,86 +143,144 @@ class MainWindow(QMainWindow):
         
         # 居中显示
         self.center_on_screen()
+        self._ensure_official_dict_sync()
     
     def center_on_screen(self):
         """在屏幕中心显示"""
         screen = QApplication.primaryScreen().geometry()
         self.move(screen.center() - self.rect().center())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._fade_in_window()
+
+    def _fade_in_window(self):
+        try:
+            self.setWindowOpacity(0.0)
+            animation = QPropertyAnimation(self, b"windowOpacity", self)
+            animation.setDuration(160)
+            animation.setStartValue(0.0)
+            animation.setEndValue(1.0)
+            animation.setEasingCurve(QEasingCurve.OutCubic)
+            animation.start()
+            self._window_fade_animation = animation
+        except Exception:
+            pass
     
     def setup_ui(self):
         """设置UI"""
-        # 创建中央部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
-        # 创建主布局
+
         layout = QVBoxLayout(central_widget)
-        layout.setSpacing(16)
-        layout.setContentsMargins(24, 24, 24, 24)
-        
-        # 创建菜单
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
+
         self.create_menu()
-        
-        # 输入区域
-        input_label = QLabel("输入日文文本")
-        input_label.setStyleSheet(SECTION_LABEL_STYLE)
-        layout.addWidget(input_label)
-        
+
+        input_card, input_layout = self._build_card("输入文本")
         self.text_input = PlainTextEdit()
-        self.text_input.setMinimumHeight(200)
+        self.text_input.setMinimumHeight(240)
         self.text_input.setPlaceholderText("请输入要转换的日文文本")
         self.text_input.setStyleSheet(MAIN_TEXT_EDIT_STYLE)
-        layout.addWidget(self.text_input)
-        
-        # 转换选项
-        options_label = QLabel("转换方式")
-        options_label.setStyleSheet(SECTION_LABEL_STYLE)
-        layout.addWidget(options_label)
-        
-        options_layout = QHBoxLayout()
-        options_layout.setSpacing(24)
-        
+        input_layout.addWidget(self.text_input, 1)
+
         self.use_hira = CustomCheckBox("平假名")
         self.use_hira.setChecked(True)
         self.use_kata = CustomCheckBox("片假名")
         self.use_kata.setChecked(True)
         self.use_roma = CustomCheckBox("罗马音")
         self.use_roma.setChecked(True)
-        
-        options_layout.addWidget(self.use_hira)
-        options_layout.addWidget(self.use_kata)
-        options_layout.addWidget(self.use_roma)
-        options_layout.addStretch()
-        
-        layout.addLayout(options_layout)
-        
-        # 转换按钮
-        convert_button = QPushButton("开始转换")
-        convert_button.setFixedWidth(140)
-        convert_button.setFixedHeight(44)
-        convert_button.clicked.connect(self.convert_text)
-        convert_button.setStyleSheet(PRIMARY_ACTION_BUTTON_STYLE)
-        layout.addWidget(convert_button, alignment=Qt.AlignCenter)
-        
-        # 输出区域
-        output_label = QLabel("转换结果")
-        output_label.setStyleSheet(SECTION_LABEL_STYLE)
-        layout.addWidget(output_label)
-        
+
+        input_actions = QHBoxLayout()
+        input_actions.setSpacing(12)
+        input_actions.addWidget(self.use_hira)
+        input_actions.addWidget(self.use_kata)
+        input_actions.addWidget(self.use_roma)
+        input_actions.addStretch(1)
+        clear_input_button = self._build_action_button("清空输入", self.text_input.clear, tertiary=True)
+        convert_button = self._build_action_button("开始转换", self.convert_text, primary=True)
+        input_actions.addWidget(clear_input_button)
+        input_actions.addWidget(convert_button)
+        input_layout.addLayout(input_actions)
+        layout.addWidget(input_card, 1)
+
+        output_card, output_layout = self._build_card("转换结果")
         self.text_output = QTextEdit()
         self.text_output.setReadOnly(True)
         self.text_output.setPlaceholderText("转换结果将显示在这里")
-        self.text_output.setMinimumHeight(200)
+        self.text_output.setMinimumHeight(240)
         self.text_output.setStyleSheet(MAIN_TEXT_EDIT_STYLE)
-        layout.addWidget(self.text_output)
-        
-        # 复制按钮
-        copy_button = QPushButton("复制结果")
-        copy_button.setFixedWidth(140)
-        copy_button.setFixedHeight(44)
-        copy_button.clicked.connect(self.copy_result)
-        copy_button.setStyleSheet(PRIMARY_ACTION_BUTTON_STYLE)
-        layout.addWidget(copy_button, alignment=Qt.AlignCenter)
+        output_layout.addWidget(self.text_output, 1)
+
+        output_actions = QHBoxLayout()
+        output_actions.setSpacing(8)
+        output_actions.addStretch(1)
+        clear_output_button = self._build_action_button("清空结果", self.text_output.clear, tertiary=True)
+        copy_button = self._build_action_button("复制结果", self.copy_result, secondary=True)
+        output_actions.addWidget(clear_output_button)
+        output_actions.addWidget(copy_button)
+        output_layout.addLayout(output_actions)
+        layout.addWidget(output_card, 1)
+
+    def _build_card(self, title, subtitle=None):
+        frame = QFrame()
+        frame.setProperty("card", "true")
+        frame.setAttribute(Qt.WA_StyledBackground, True)
+        layout = QVBoxLayout(frame)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        title_label = QLabel(title)
+        title_label.setProperty("section", "true")
+        layout.addWidget(title_label)
+
+        if subtitle:
+            subtitle_label = QLabel(subtitle)
+            subtitle_label.setProperty("muted", "true")
+            subtitle_label.setWordWrap(True)
+            layout.addWidget(subtitle_label)
+
+        return frame, layout
+
+    def _build_action_button(self, text, slot, secondary=False, primary=False, tertiary=False):
+        button = QPushButton(text)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        button.setFixedHeight(34)
+        if primary:
+            button.setStyleSheet(PRIMARY_ACTION_BUTTON_STYLE)
+        elif tertiary:
+            button.setStyleSheet(TERTIARY_ACTION_BUTTON_STYLE)
+        elif secondary:
+            button.setStyleSheet(SECONDARY_ACTION_BUTTON_STYLE)
+        else:
+            button.setStyleSheet(SECONDARY_ACTION_BUTTON_STYLE)
+        button.clicked.connect(lambda _checked=False, _slot=slot: _slot())
+        return button
+
+    def _format_dict_path_label(self):
+        path = self.current_dict_path or storage_get_dict_path()
+        return f"当前词典：{path}"
+
+    def _refresh_home_status(self):
+        dict_text = self._format_dict_path_label()
+        if hasattr(self, "dict_path_label"):
+            self.dict_path_label.setText(dict_text)
+        if hasattr(self, "status_dict_label"):
+            self.status_dict_label.setText(dict_text)
+        if hasattr(self, "conflict_state_label"):
+            state = "已启用" if self.enable_conflict_detection else "已关闭"
+            self.conflict_state_label.setText(f"冲突检测：{state}")
+        if hasattr(self, "merge_policy_label"):
+            merge_state_map = {
+                DICT_MERGE_POLICY_ASK: "官方词典策略：每次询问",
+                DICT_MERGE_POLICY_KEEP_LOCAL: "官方词典策略：默认保留本地",
+                DICT_MERGE_POLICY_REPLACE_OFFICIAL: "官方词典策略：默认替换云端",
+            }
+            self.merge_policy_label.setText(
+                merge_state_map.get(self.official_dict_merge_policy, "官方词典策略：每次询问")
+            )
     
     def create_menu(self):
         """创建菜单"""
@@ -248,11 +341,14 @@ class MainWindow(QMainWindow):
             config = storage_load_config(config_path)
             self.current_dict_path = config.get('current_dict_path', self.current_dict_path)
             self.enable_conflict_detection = config.get('enable_conflict_detection', True)
+            self.official_dict_merge_policy = config.get("official_dict_merge_policy", DICT_MERGE_POLICY_ASK)
         except Exception as e:
             print(f"加载配置时出错: {e}")
             # 如果加载失败，使用默认配置
             self.current_dict_path = storage_get_dict_path()
             self.enable_conflict_detection = True
+            self.official_dict_merge_policy = DICT_MERGE_POLICY_ASK
+        self._refresh_home_status()
         return config  # 始终返回一个字典，即使是空的
     
     def load_custom_dict(self):
@@ -271,6 +367,171 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"加载字典文件失败: {str(e)}")
             self.custom_dict = empty_custom_dict()
+
+    def _ensure_official_dict_sync(self):
+        """检测官方词典更新并按配置处理。"""
+        try:
+            official_resource_path = storage_resource_path("custom_dict.json", __file__)
+            if not official_resource_path:
+                return
+
+            state_snapshot = storage_load_official_dict_state(self.official_dict_state_path)
+            if not state_snapshot.get("sha256"):
+                snapshot = storage_build_official_dict_snapshot(official_resource_path, None, APP_VERSION)
+                storage_save_official_dict_state(self.official_dict_state_path, snapshot)
+                return
+
+            if not storage_official_dict_needs_sync(self.official_dict_state_path, official_resource_path):
+                return
+
+            official_dict = storage_load_official_dict(official_resource_path)
+            plan = build_official_dict_sync_plan(
+                state_snapshot,
+                self.custom_dict,
+                official_dict,
+                self.official_dict_merge_policy,
+            )
+
+            if not plan["items"]:
+                snapshot = storage_build_official_dict_snapshot(official_resource_path, official_dict, APP_VERSION)
+                storage_save_official_dict_state(self.official_dict_state_path, snapshot)
+                return
+
+            if self.official_dict_merge_policy == DICT_MERGE_POLICY_ASK:
+                self._show_official_merge_dialog(plan)
+                return
+
+            resolved = resolve_official_dict_sync(plan)
+            self.custom_dict = resolved
+            self.save_custom_dict()
+            snapshot = storage_build_official_dict_snapshot(official_resource_path, official_dict, APP_VERSION)
+            storage_save_official_dict_state(self.official_dict_state_path, snapshot)
+        except Exception as e:
+            print(f"官方词典同步检查失败: {e}")
+
+    def _show_official_merge_dialog(self, plan):
+        from PySide6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QTableWidget, QTableWidgetItem, QVBoxLayout
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("官方词典更新")
+        dialog.setModal(True)
+        dialog.setMinimumSize(1040, 640)
+        dialog.setWindowIcon(QIcon(storage_resource_path("icon.ico", __file__)))
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        summary_text = (
+            f"检测到官方词典更新，共发现 {plan['summary']['total']} 处需要处理的差异。"
+            "你可以逐条选择，也可以先勾选多条后批量应用。"
+        )
+        summary_label = QLabel(summary_text)
+        summary_label.setWordWrap(True)
+        layout.addWidget(summary_label)
+
+        table = QTableWidget()
+        table.setColumnCount(6)
+        table.setHorizontalHeaderLabels(["勾选", "分组", "词条", "当前本地", "新官方", "处理方式"])
+        table.setRowCount(len(plan["items"]))
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(table.SelectRows)
+        table.setEditTriggers(table.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.setWordWrap(True)
+
+        row_widgets = []
+        action_choices = [
+            ("keep_local", "保留本地"),
+            ("use_official", "采用云端"),
+            ("merge", "合并"),
+        ]
+        for row, item in enumerate(plan["items"]):
+            checkbox = QCheckBox()
+            checkbox.setChecked(True)
+            table.setCellWidget(row, 0, checkbox)
+            table.setItem(row, 1, QTableWidgetItem(item["group_label"]))
+            table.setItem(row, 2, QTableWidgetItem(item["word"]))
+            table.setItem(row, 3, QTableWidgetItem(", ".join(item["local"] or []) if item["local_present"] else "(无)"))
+            table.setItem(row, 4, QTableWidgetItem(", ".join(item["official"] or []) if item["official_present"] else "(无)"))
+            action_combo = QComboBox()
+            for action_key, action_text in action_choices:
+                action_combo.addItem(action_text, action_key)
+            default_action = item.get("default_action") or item.get("recommended_action") or "merge"
+            default_index = action_combo.findData(default_action)
+            if default_index < 0:
+                default_index = action_combo.findData("merge")
+            action_combo.setCurrentIndex(max(default_index, 0))
+            table.setCellWidget(row, 5, action_combo)
+            row_widgets.append((checkbox, action_combo))
+
+        table.resizeColumnsToContents()
+        table.resizeRowsToContents()
+        layout.addWidget(table)
+
+        button_bar = QHBoxLayout()
+        select_all_button = QPushButton("全选")
+        clear_all_button = QPushButton("全不选")
+        use_local_button = QPushButton("选中项保留本地")
+        use_official_button = QPushButton("选中项采用云端")
+        merge_button = QPushButton("选中项合并")
+        apply_button = QPushButton("确认合并")
+        cancel_button = QPushButton("取消")
+
+        def set_selection_state(checked):
+            for checkbox, _combo in row_widgets:
+                checkbox.setChecked(checked)
+
+        def apply_action_to_selected(action_name):
+            for checkbox, combo in row_widgets:
+                if not checkbox.isChecked():
+                    continue
+                index = combo.findData(action_name)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+
+        def accept_dialog():
+            decisions = {}
+            for item, (_checkbox, combo) in zip(plan["items"], row_widgets):
+                action = combo.currentData()
+                if not action:
+                    action = item.get("default_action") or item.get("recommended_action") or "merge"
+                decisions[(item["group"], item["word"])] = action
+            dialog._selected_actions = decisions
+            dialog.accept()
+
+        select_all_button.clicked.connect(lambda: set_selection_state(True))
+        clear_all_button.clicked.connect(lambda: set_selection_state(False))
+        use_local_button.clicked.connect(lambda: apply_action_to_selected("keep_local"))
+        use_official_button.clicked.connect(lambda: apply_action_to_selected("use_official"))
+        merge_button.clicked.connect(lambda: apply_action_to_selected("merge"))
+
+        apply_button.clicked.connect(accept_dialog)
+        cancel_button.clicked.connect(dialog.reject)
+
+        button_bar.addWidget(select_all_button)
+        button_bar.addWidget(clear_all_button)
+        button_bar.addWidget(use_local_button)
+        button_bar.addWidget(use_official_button)
+        button_bar.addWidget(merge_button)
+        button_bar.addStretch()
+        button_bar.addWidget(cancel_button)
+        button_bar.addWidget(apply_button)
+        layout.addLayout(button_bar)
+
+        if dialog.exec() == QDialog.Accepted:
+            decisions = getattr(dialog, "_selected_actions", {})
+            resolved = resolve_official_dict_sync(plan, decisions)
+            self.custom_dict = resolved
+            self.save_custom_dict()
+            official_dict = storage_load_official_dict(storage_resource_path("custom_dict.json", __file__))
+            snapshot = storage_build_official_dict_snapshot(
+                storage_resource_path("custom_dict.json", __file__),
+                official_dict,
+                APP_VERSION,
+            )
+            storage_save_official_dict_state(self.official_dict_state_path, snapshot)
+            CustomMessageBox(self, "完成", "官方词典已按你的选择完成合并。", style="success").exec()
     
     def save_custom_dict(self):
         """保存自定义词典"""
@@ -284,6 +545,7 @@ class MainWindow(QMainWindow):
         """保存配置到文件"""
         try:
             storage_save_config(storage_get_config_path(), config)
+            self._refresh_home_status()
             return True
         except Exception as e:
             print(f"保存配置文件失败: {e}")
@@ -441,29 +703,40 @@ class MainWindow(QMainWindow):
         config = self.load_config()
         config['current_dict_path'] = self.current_dict_path
         
-        # 保存关闭提示设置
-        # 通过对象名称查找关闭提示复选框
-        close_prompt_checkbox = settings_window.findChild(SwitchCheckBox, "close_prompt_checkbox")
-        if close_prompt_checkbox:
-            # 设置为相反值，因为配置中存储的是"不再显示"
-            config["minimize_to_tray_without_asking"] = not close_prompt_checkbox.isChecked()
-        
-        # 保存默认关闭行为
+        # 保存关闭行为。继续写入旧配置字段，兼容已有配置和关闭弹窗逻辑。
+        tray_ask_radio = settings_window.findChild(QRadioButton, "tray_policy_ask_radio")
         minimize_radio = settings_window.findChild(QRadioButton, "minimize_radio")
         exit_radio = settings_window.findChild(QRadioButton, "exit_radio")
-        if minimize_radio and exit_radio:
-            if minimize_radio.isChecked():
+        if tray_ask_radio and minimize_radio and exit_radio:
+            if tray_ask_radio.isChecked():
+                config["minimize_to_tray_without_asking"] = False
+            elif minimize_radio.isChecked():
+                config["minimize_to_tray_without_asking"] = True
                 config["close_action"] = "minimize"
             elif exit_radio.isChecked():
+                config["minimize_to_tray_without_asking"] = True
                 config["close_action"] = "exit"
         
         # 保存冲突检测设置
         if hasattr(self, 'conflict_detection_checkbox'):
             self.enable_conflict_detection = self.conflict_detection_checkbox.isChecked()
             config["enable_conflict_detection"] = self.enable_conflict_detection
-        
+
+        merge_ask_radio = settings_window.findChild(QRadioButton, "merge_policy_ask_radio")
+        merge_keep_local_radio = settings_window.findChild(QRadioButton, "merge_policy_keep_local_radio")
+        merge_replace_official_radio = settings_window.findChild(QRadioButton, "merge_policy_replace_official_radio")
+        if merge_ask_radio and merge_keep_local_radio and merge_replace_official_radio:
+            if merge_ask_radio.isChecked():
+                self.official_dict_merge_policy = DICT_MERGE_POLICY_ASK
+            elif merge_keep_local_radio.isChecked():
+                self.official_dict_merge_policy = DICT_MERGE_POLICY_KEEP_LOCAL
+            elif merge_replace_official_radio.isChecked():
+                self.official_dict_merge_policy = DICT_MERGE_POLICY_REPLACE_OFFICIAL
+            config["official_dict_merge_policy"] = self.official_dict_merge_policy
+
         # 保存配置
         self.save_config(config)
+        self._refresh_home_status()
         
         settings_window.accept()
     

@@ -40,7 +40,7 @@ def is_range_processed(processed_ranges, start, length):
     return any(ranges_overlap(start, end, processed_start, processed_end) for processed_start, processed_end in processed_ranges)
 
 
-def iter_non_overlapping_occurrences(text, needle, processed_ranges):
+def iter_non_overlapping_occurrences(text, needle, processed_ranges, shadowed_matches=None, source=None):
     if not text or not needle:
         return
 
@@ -50,6 +50,13 @@ def iter_non_overlapping_occurrences(text, needle, processed_ranges):
         if pos == -1:
             break
         if is_range_processed(processed_ranges, pos, len(needle)):
+            if shadowed_matches is not None:
+                shadowed_matches.append({
+                    "word": needle,
+                    "position": pos,
+                    "end": pos + len(needle),
+                    "source": source,
+                })
             start_pos = pos + 1
             continue
         yield pos
