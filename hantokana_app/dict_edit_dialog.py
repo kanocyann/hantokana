@@ -224,22 +224,21 @@ class DictEditDialog(QDialog):
 
     def _source_badge_style(self, source):
         colors = {
-            SOURCE_OFFICIAL: ("#eef4ff", "#315aa8", "#cbdaf8"),
-            SOURCE_CUSTOM: ("#e8f5ef", "#1f6f58", "#b8dfd0"),
-            SOURCE_OVERRIDE: ("#fff3e0", "#9a5b00", "#ffd59a"),
-            SOURCE_DELETED: ("#fff1f2", "#b42318", "#fecdd3"),
+            SOURCE_OFFICIAL: ("#f3f7fb", "#3f5f7f", "#d8e4ef"),
+            SOURCE_CUSTOM: ("#f0f8f5", "#2f6f5b", "#d5ebe2"),
+            SOURCE_OVERRIDE: ("#fff8ec", "#8a641f", "#f1dfbd"),
+            SOURCE_DELETED: ("#fff5f6", "#9a4050", "#efd3d8"),
         }
-        background, color, border = colors.get(source, ("#f3f4f6", "#4b5563", "#d1d5db"))
+        background, color, border = colors.get(source, ("#f6f7f9", "#4b5563", "#d9dee5"))
         return f"""
         QLabel {{
             background-color: {background};
             color: {color};
             border: 1px solid {border};
-            border-radius: 9px;
-            padding: 2px 8px;
+            border-radius: 8px;
+            padding: 0px 6px;
             font-size: 12px;
             font-weight: 600;
-            min-width: 58px;
         }}
         """
 
@@ -260,7 +259,7 @@ class DictEditDialog(QDialog):
 
         badge_label = QLabel(source_label(source))
         badge_label.setAlignment(Qt.AlignCenter)
-        badge_label.setMinimumSize(66, 24)
+        badge_label.setFixedSize(52, 28)
         badge_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         badge_label.setStyleSheet(self._source_badge_style(source))
 
