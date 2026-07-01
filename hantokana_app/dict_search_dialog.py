@@ -735,7 +735,8 @@ class DictSearchDialog(QDialog):
     
     def load_dict_data(self):
         """加载词典数据"""
-        self.all_entries = list(iter_custom_dict_entries(self.parent.custom_dict))
+        source_dict = getattr(self.parent, "effective_dict", self.parent.custom_dict)
+        self.all_entries = list(iter_custom_dict_entries(source_dict))
         # 按词条排序
         self.all_entries.sort(key=lambda x: x['word'])
         

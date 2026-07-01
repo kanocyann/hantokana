@@ -1,10 +1,8 @@
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -12,7 +10,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QPushButton,
     QRadioButton,
-    QSplitter,
     QTextEdit,
     QSystemTrayIcon,
     QVBoxLayout,
@@ -22,7 +19,6 @@ from PySide6.QtCore import Qt, QEasingCurve, QPropertyAnimation
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
 import pykakasi
 from fugashi import Tagger
-import os
 from .conversion_core import (
     kana_to_romaji,
     empty_custom_dict,
@@ -35,18 +31,16 @@ from .ui_shared import (
 )
 from .storage_core import (
     get_dict_path as storage_get_dict_path,
+    get_effective_dict_path as storage_get_effective_dict_path,
+    get_official_dict_path as storage_get_official_dict_path,
     get_config_path as storage_get_config_path,
-    get_official_dict_state_path as storage_get_official_dict_state_path,
-    official_dict_needs_sync as storage_official_dict_needs_sync,
-    load_official_dict_state as storage_load_official_dict_state,
-    save_official_dict_state as storage_save_official_dict_state,
-    load_official_dict as storage_load_official_dict,
-    build_official_dict_snapshot as storage_build_official_dict_snapshot,
+    sync_official_dict_to_appdata as storage_sync_official_dict_to_appdata,
     resource_path as storage_resource_path,
     load_config as storage_load_config,
     save_config as storage_save_config,
     load_custom_dict as storage_load_custom_dict,
     save_custom_dict as storage_save_custom_dict,
+    save_effective_dict as storage_save_effective_dict,
     import_dict_file as storage_import_dict_file,
 )
 from .app_dialogs import (
@@ -54,27 +48,20 @@ from .app_dialogs import (
     build_close_choice_dialog,
     build_settings_dialog,
 )
-from .app_config import (
-    APP_VERSION,
-    DICT_MERGE_POLICY_ASK,
-    DICT_MERGE_POLICY_KEEP_LOCAL,
-    DICT_MERGE_POLICY_REPLACE_OFFICIAL,
-)
+from .app_config import DEFAULT_APP_CONFIG
 from .conversion_service import convert_text_payload
 from .dict_migration_core import (
-    build_official_dict_sync_plan,
-    resolve_official_dict_sync,
-    action_label,
+    build_effective_dict_cache,
+    dict_entry_source,
+    prune_redundant_custom_entries,
+    source_label,
 )
 from .dict_dialogs import DictEditDialog, DictSearchDialog
 from .ui_styles import (
-    BADGE_LABEL_STYLE,
     MAIN_TEXT_EDIT_STYLE,
     MAIN_WINDOW_STYLE_SHEET,
     PRIMARY_ACTION_BUTTON_STYLE,
     SECONDARY_ACTION_BUTTON_STYLE,
-    SECTION_LABEL_STYLE,
-    SUBTLE_LABEL_STYLE,
     TERTIARY_ACTION_BUTTON_STYLE,
 )
 
@@ -116,24 +103,25 @@ class MainWindow(QMainWindow):
         self.tray_icon.show()
         
         # 初始化变量
+        self.official_dict = empty_custom_dict()
         self.custom_dict = {
             "normal_words": {},
             "compound_words": {},
             "prefix_combinations": {},
             "suffix_combinations": {}
         }
+        self.effective_dict = empty_custom_dict()
+        self.effective_dict_path = storage_get_effective_dict_path()
         self.current_dict_path = None
         self.tagger = None
         self.conv = None
         self.dict_search_dialog = None  # 添加词典搜索对话框变量
-        self.enable_conflict_detection = True  # 默认启用冲突检测
-        self.official_dict_merge_policy = DICT_MERGE_POLICY_ASK
-        self.official_dict_state_path = storage_get_official_dict_state_path()
+        self.enable_conflict_detection = DEFAULT_APP_CONFIG["enable_conflict_detection"]
         self._window_fade_animation = None
         
         # 加载配置和字典
         self.load_config()
-        self.load_custom_dict()
+        self.load_dictionaries()
         
         # 创建主窗口部件
         self.setup_ui()
@@ -143,7 +131,6 @@ class MainWindow(QMainWindow):
         
         # 居中显示
         self.center_on_screen()
-        self._ensure_official_dict_sync()
     
     def center_on_screen(self):
         """在屏幕中心显示"""
@@ -261,7 +248,7 @@ class MainWindow(QMainWindow):
 
     def _format_dict_path_label(self):
         path = self.current_dict_path or storage_get_dict_path()
-        return f"当前词典：{path}"
+        return f"当前用户词典：{path}"
 
     def _refresh_home_status(self):
         dict_text = self._format_dict_path_label()
@@ -272,15 +259,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, "conflict_state_label"):
             state = "已启用" if self.enable_conflict_detection else "已关闭"
             self.conflict_state_label.setText(f"冲突检测：{state}")
-        if hasattr(self, "merge_policy_label"):
-            merge_state_map = {
-                DICT_MERGE_POLICY_ASK: "官方词典策略：每次询问",
-                DICT_MERGE_POLICY_KEEP_LOCAL: "官方词典策略：默认保留本地",
-                DICT_MERGE_POLICY_REPLACE_OFFICIAL: "官方词典策略：默认替换云端",
-            }
-            self.merge_policy_label.setText(
-                merge_state_map.get(self.official_dict_merge_policy, "官方词典策略：每次询问")
-            )
     
     def create_menu(self):
         """创建菜单"""
@@ -339,205 +317,88 @@ class MainWindow(QMainWindow):
         try:
             config_path = storage_get_config_path()
             config = storage_load_config(config_path)
-            self.current_dict_path = config.get('current_dict_path', self.current_dict_path)
-            self.enable_conflict_detection = config.get('enable_conflict_detection', True)
-            self.official_dict_merge_policy = config.get("official_dict_merge_policy", DICT_MERGE_POLICY_ASK)
+            self.current_dict_path = config.get("current_dict_path") or storage_get_dict_path()
+            self.enable_conflict_detection = config.get(
+                "enable_conflict_detection",
+                DEFAULT_APP_CONFIG["enable_conflict_detection"],
+            )
         except Exception as e:
             print(f"加载配置时出错: {e}")
             # 如果加载失败，使用默认配置
             self.current_dict_path = storage_get_dict_path()
-            self.enable_conflict_detection = True
-            self.official_dict_merge_policy = DICT_MERGE_POLICY_ASK
+            self.enable_conflict_detection = DEFAULT_APP_CONFIG["enable_conflict_detection"]
         self._refresh_home_status()
         return config  # 始终返回一个字典，即使是空的
     
-    def load_custom_dict(self):
-        """加载自定义词典"""
-        if self.current_dict_path and os.path.exists(self.current_dict_path):
-            custom_dict_path = self.current_dict_path
-        else:
-            custom_dict_path = storage_get_dict_path()
+    def load_dictionaries(self):
+        """加载官方词典和用户词典。"""
+        custom_dict_path = (self.current_dict_path or "").strip() or storage_get_dict_path()
 
-        try:
-            self.custom_dict, custom_dict_path = storage_load_custom_dict(
-                custom_dict_path,
-                storage_resource_path("custom_dict.json", __file__),
-            )
-            self.current_dict_path = custom_dict_path
-        except Exception as e:
-            print(f"加载字典文件失败: {str(e)}")
-            self.custom_dict = empty_custom_dict()
-
-    def _ensure_official_dict_sync(self):
-        """检测官方词典更新并按配置处理。"""
         try:
             official_resource_path = storage_resource_path("custom_dict.json", __file__)
-            if not official_resource_path:
-                return
-
-            state_snapshot = storage_load_official_dict_state(self.official_dict_state_path)
-            if not state_snapshot.get("sha256"):
-                snapshot = storage_build_official_dict_snapshot(official_resource_path, None, APP_VERSION)
-                storage_save_official_dict_state(self.official_dict_state_path, snapshot)
-                return
-
-            if not storage_official_dict_needs_sync(self.official_dict_state_path, official_resource_path):
-                return
-
-            official_dict = storage_load_official_dict(official_resource_path)
-            plan = build_official_dict_sync_plan(
-                state_snapshot,
-                self.custom_dict,
-                official_dict,
-                self.official_dict_merge_policy,
+            self.official_dict, _official_path = storage_sync_official_dict_to_appdata(
+                official_resource_path,
+                storage_get_official_dict_path(),
             )
-
-            if not plan["items"]:
-                snapshot = storage_build_official_dict_snapshot(official_resource_path, official_dict, APP_VERSION)
-                storage_save_official_dict_state(self.official_dict_state_path, snapshot)
-                return
-
-            if self.official_dict_merge_policy == DICT_MERGE_POLICY_ASK:
-                self._show_official_merge_dialog(plan)
-                return
-
-            resolved = resolve_official_dict_sync(plan)
-            self.custom_dict = resolved
-            self.save_custom_dict()
-            snapshot = storage_build_official_dict_snapshot(official_resource_path, official_dict, APP_VERSION)
-            storage_save_official_dict_state(self.official_dict_state_path, snapshot)
         except Exception as e:
-            print(f"官方词典同步检查失败: {e}")
+            print(f"加载官方词典失败: {str(e)}")
+            self.official_dict = empty_custom_dict()
 
-    def _show_official_merge_dialog(self, plan):
-        from PySide6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QTableWidget, QTableWidgetItem, QVBoxLayout
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("官方词典更新")
-        dialog.setModal(True)
-        dialog.setMinimumSize(1040, 640)
-        dialog.setWindowIcon(QIcon(storage_resource_path("icon.ico", __file__)))
-
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        summary_text = (
-            f"检测到官方词典更新，共发现 {plan['summary']['total']} 处需要处理的差异。"
-            "你可以逐条选择，也可以先勾选多条后批量应用。"
-        )
-        summary_label = QLabel(summary_text)
-        summary_label.setWordWrap(True)
-        layout.addWidget(summary_label)
-
-        table = QTableWidget()
-        table.setColumnCount(6)
-        table.setHorizontalHeaderLabels(["勾选", "分组", "词条", "当前本地", "新官方", "处理方式"])
-        table.setRowCount(len(plan["items"]))
-        table.verticalHeader().setVisible(False)
-        table.setSelectionBehavior(table.SelectRows)
-        table.setEditTriggers(table.NoEditTriggers)
-        table.setAlternatingRowColors(True)
-        table.setWordWrap(True)
-
-        row_widgets = []
-        action_choices = [
-            ("keep_local", "保留本地"),
-            ("use_official", "采用云端"),
-            ("merge", "合并"),
-        ]
-        for row, item in enumerate(plan["items"]):
-            checkbox = QCheckBox()
-            checkbox.setChecked(True)
-            table.setCellWidget(row, 0, checkbox)
-            table.setItem(row, 1, QTableWidgetItem(item["group_label"]))
-            table.setItem(row, 2, QTableWidgetItem(item["word"]))
-            table.setItem(row, 3, QTableWidgetItem(", ".join(item["local"] or []) if item["local_present"] else "(无)"))
-            table.setItem(row, 4, QTableWidgetItem(", ".join(item["official"] or []) if item["official_present"] else "(无)"))
-            action_combo = QComboBox()
-            for action_key, action_text in action_choices:
-                action_combo.addItem(action_text, action_key)
-            default_action = item.get("default_action") or item.get("recommended_action") or "merge"
-            default_index = action_combo.findData(default_action)
-            if default_index < 0:
-                default_index = action_combo.findData("merge")
-            action_combo.setCurrentIndex(max(default_index, 0))
-            table.setCellWidget(row, 5, action_combo)
-            row_widgets.append((checkbox, action_combo))
-
-        table.resizeColumnsToContents()
-        table.resizeRowsToContents()
-        layout.addWidget(table)
-
-        button_bar = QHBoxLayout()
-        select_all_button = QPushButton("全选")
-        clear_all_button = QPushButton("全不选")
-        use_local_button = QPushButton("选中项保留本地")
-        use_official_button = QPushButton("选中项采用云端")
-        merge_button = QPushButton("选中项合并")
-        apply_button = QPushButton("确认合并")
-        cancel_button = QPushButton("取消")
-
-        def set_selection_state(checked):
-            for checkbox, _combo in row_widgets:
-                checkbox.setChecked(checked)
-
-        def apply_action_to_selected(action_name):
-            for checkbox, combo in row_widgets:
-                if not checkbox.isChecked():
-                    continue
-                index = combo.findData(action_name)
-                if index >= 0:
-                    combo.setCurrentIndex(index)
-
-        def accept_dialog():
-            decisions = {}
-            for item, (_checkbox, combo) in zip(plan["items"], row_widgets):
-                action = combo.currentData()
-                if not action:
-                    action = item.get("default_action") or item.get("recommended_action") or "merge"
-                decisions[(item["group"], item["word"])] = action
-            dialog._selected_actions = decisions
-            dialog.accept()
-
-        select_all_button.clicked.connect(lambda: set_selection_state(True))
-        clear_all_button.clicked.connect(lambda: set_selection_state(False))
-        use_local_button.clicked.connect(lambda: apply_action_to_selected("keep_local"))
-        use_official_button.clicked.connect(lambda: apply_action_to_selected("use_official"))
-        merge_button.clicked.connect(lambda: apply_action_to_selected("merge"))
-
-        apply_button.clicked.connect(accept_dialog)
-        cancel_button.clicked.connect(dialog.reject)
-
-        button_bar.addWidget(select_all_button)
-        button_bar.addWidget(clear_all_button)
-        button_bar.addWidget(use_local_button)
-        button_bar.addWidget(use_official_button)
-        button_bar.addWidget(merge_button)
-        button_bar.addStretch()
-        button_bar.addWidget(cancel_button)
-        button_bar.addWidget(apply_button)
-        layout.addLayout(button_bar)
-
-        if dialog.exec() == QDialog.Accepted:
-            decisions = getattr(dialog, "_selected_actions", {})
-            resolved = resolve_official_dict_sync(plan, decisions)
-            self.custom_dict = resolved
-            self.save_custom_dict()
-            official_dict = storage_load_official_dict(storage_resource_path("custom_dict.json", __file__))
-            snapshot = storage_build_official_dict_snapshot(
-                storage_resource_path("custom_dict.json", __file__),
-                official_dict,
-                APP_VERSION,
+        try:
+            self.custom_dict, custom_dict_path = storage_load_custom_dict(custom_dict_path)
+            self.custom_dict, did_prune_custom = prune_redundant_custom_entries(
+                self.official_dict,
+                self.custom_dict,
             )
-            storage_save_official_dict_state(self.official_dict_state_path, snapshot)
-            CustomMessageBox(self, "完成", "官方词典已按你的选择完成合并。", style="success").exec()
+            if did_prune_custom:
+                storage_save_custom_dict(custom_dict_path, self.custom_dict)
+            self.current_dict_path = custom_dict_path
+        except Exception as e:
+            print(f"加载用户词典失败: {str(e)}")
+            fallback_path = storage_get_dict_path()
+            try:
+                self.custom_dict, fallback_path = storage_load_custom_dict(fallback_path)
+                self.current_dict_path = fallback_path
+            except Exception as fallback_error:
+                print(f"加载默认用户词典失败: {str(fallback_error)}")
+                self.custom_dict = empty_custom_dict()
+                self.current_dict_path = fallback_path
+
+        self._refresh_effective_dict()
+        self._refresh_home_status()
+
+    def load_custom_dict(self):
+        self.load_dictionaries()
+
+    def _refresh_effective_dict(self):
+        self.effective_dict = build_effective_dict_cache(self.official_dict, self.custom_dict)
+        try:
+            storage_save_effective_dict(self.effective_dict_path, self.effective_dict)
+        except Exception as e:
+            print(f"保存运行词典缓存失败: {e}")
+
+    def get_entry_source(self, word_type, word):
+        return dict_entry_source(self.official_dict, self.custom_dict, word_type, word)
+
+    def get_entry_values_for_edit(self, word_type, word):
+        custom_bucket = self.custom_dict.get(word_type, {})
+        if word in custom_bucket:
+            return custom_bucket[word]
+        return self.official_dict.get(word_type, {}).get(word, [])
+
+    def describe_entry_source(self, word_type, word):
+        return source_label(self.get_entry_source(word_type, word))
     
     def save_custom_dict(self):
         """保存自定义词典"""
         dict_path = self.current_dict_path or storage_get_dict_path()
         try:
+            self.custom_dict, _did_prune_custom = prune_redundant_custom_entries(
+                self.official_dict,
+                self.custom_dict,
+            )
             storage_save_custom_dict(dict_path, self.custom_dict)
+            self._refresh_effective_dict()
         except Exception as e:
             print(f"保存字典文件失败: {str(e)}")
 
@@ -580,7 +441,7 @@ class MainWindow(QMainWindow):
         try:
             result = convert_text_payload(
                 self.text_input.toPlainText(),
-                self.custom_dict,
+                self.effective_dict,
                 self.tagger,
                 self.conv,
                 self.use_hira.isChecked(),
@@ -626,8 +487,7 @@ class MainWindow(QMainWindow):
                 merged = storage_import_dict_file(self.custom_dict, file_path)
                 if isinstance(merged, dict):
                     self.custom_dict = merged
-                    dict_path = self.current_dict_path or storage_get_dict_path()
-                    storage_save_custom_dict(dict_path, self.custom_dict)
+                    self.save_custom_dict()
                     CustomMessageBox(self, "成功", "词典导入并合并成功", style='success').exec()
                 else:
                     CustomMessageBox(self, "警告", "所选文件格式无效，请选择一个有效的 JSON 文件", style='warning').exec()
@@ -641,24 +501,14 @@ class MainWindow(QMainWindow):
             word_type: 词典类型
             target_word: 可选，需要定位的词条
         """
-        dialog = DictEditDialog(self, word_type, self.custom_dict)
+        dialog = DictEditDialog(self, word_type, self.custom_dict, self.official_dict)
         # 设置窗口图标
         icon_path = storage_resource_path("icon.ico", __file__)
         dialog.setWindowIcon(QIcon(icon_path))
         
         # 如果指定了目标词条，尝试定位
         if target_word:
-            # 查找并选择目标词条
-            for i in range(dialog.list_widget.count()):
-                item = dialog.list_widget.item(i)
-                item_word = item.data(Qt.UserRole)
-                if item_word == target_word or item.text().startswith(f"{target_word} →"):
-                    dialog.list_widget.setCurrentItem(item)
-                    # 滚动到该项
-                    dialog.list_widget.scrollToItem(item)
-                    # 自动填充到编辑框
-                    dialog.edit_entry()
-                    break
+            dialog.focus_entry(target_word)
         
         if dialog.exec() == QDialog.Accepted:
             # 更新主窗口的词典数据
@@ -677,7 +527,7 @@ class MainWindow(QMainWindow):
         
         # 创建文件对话框并设置图标
         file_dialog = QFileDialog(parent_dialog)
-        file_dialog.setWindowTitle("选择默认词典文件")
+        file_dialog.setWindowTitle("选择默认用户词典文件")
         file_dialog.setNameFilter("JSON 文件 (*.json)")
         
         # 设置窗口图标
@@ -695,13 +545,12 @@ class MainWindow(QMainWindow):
     
     def save_settings(self, path_edit, settings_window):
         """保存设置"""
-        new_path = path_edit.text()
-        if new_path != self.current_dict_path:
-            self.current_dict_path = new_path
-        
         # 保存配置到JSON文件
         config = self.load_config()
-        config['current_dict_path'] = self.current_dict_path
+
+        new_path = path_edit.text().strip() or storage_get_dict_path()
+        self.current_dict_path = new_path
+        config["current_dict_path"] = self.current_dict_path
         
         # 保存关闭行为。继续写入旧配置字段，兼容已有配置和关闭弹窗逻辑。
         tray_ask_radio = settings_window.findChild(QRadioButton, "tray_policy_ask_radio")
@@ -722,20 +571,9 @@ class MainWindow(QMainWindow):
             self.enable_conflict_detection = self.conflict_detection_checkbox.isChecked()
             config["enable_conflict_detection"] = self.enable_conflict_detection
 
-        merge_ask_radio = settings_window.findChild(QRadioButton, "merge_policy_ask_radio")
-        merge_keep_local_radio = settings_window.findChild(QRadioButton, "merge_policy_keep_local_radio")
-        merge_replace_official_radio = settings_window.findChild(QRadioButton, "merge_policy_replace_official_radio")
-        if merge_ask_radio and merge_keep_local_radio and merge_replace_official_radio:
-            if merge_ask_radio.isChecked():
-                self.official_dict_merge_policy = DICT_MERGE_POLICY_ASK
-            elif merge_keep_local_radio.isChecked():
-                self.official_dict_merge_policy = DICT_MERGE_POLICY_KEEP_LOCAL
-            elif merge_replace_official_radio.isChecked():
-                self.official_dict_merge_policy = DICT_MERGE_POLICY_REPLACE_OFFICIAL
-            config["official_dict_merge_policy"] = self.official_dict_merge_policy
-
         # 保存配置
         self.save_config(config)
+        self.load_dictionaries()
         self._refresh_home_status()
         
         settings_window.accept()

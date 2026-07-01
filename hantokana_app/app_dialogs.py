@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QRadioButton,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -19,10 +20,6 @@ from PySide6.QtWidgets import (
 from .ui_shared import CustomCheckBox, SwitchCheckBox, _resolve_icon_path
 from .app_config import (
     APP_VERSION,
-    DEFAULT_DICT_MERGE_POLICY,
-    DICT_MERGE_POLICY_ASK,
-    DICT_MERGE_POLICY_KEEP_LOCAL,
-    DICT_MERGE_POLICY_REPLACE_OFFICIAL,
 )
 
 
@@ -193,7 +190,7 @@ def build_settings_dialog(main_window):
     title.setProperty("title", "true")
     header_layout.addWidget(title)
 
-    desc = QLabel("这里控制词典路径、官方词典同步策略和关闭行为。")
+    desc = QLabel("这里控制用户词典路径、词典诊断和关闭行为。")
     desc.setProperty("muted", "true")
     desc.setWordWrap(True)
     header_layout.addWidget(desc)
@@ -211,16 +208,18 @@ def build_settings_dialog(main_window):
     content_layout.setContentsMargins(0, 0, 0, 0)
 
     config = main_window.load_config()
-    merge_policy = config.get("official_dict_merge_policy", DEFAULT_DICT_MERGE_POLICY)
     show_close_prompt = not config.get("minimize_to_tray_without_asking", False)
     close_action = config.get("close_action", "minimize")
 
-    dict_section, dict_layout = _card("词典路径", "设置词典文件的默认保存路径。")
+    dict_section, dict_layout = _card(
+        "默认用户词典",
+        "官方词典会随程序自动加载；这里选择的是你的个人词典文件。",
+    )
     path_row = QHBoxLayout()
     path_row.setSpacing(8)
     path_edit = QLineEdit()
     path_edit.setText(main_window.current_dict_path or "")
-    path_edit.setPlaceholderText("请选择或输入词典文件路径")
+    path_edit.setPlaceholderText("请选择或输入用户词典文件路径")
     path_edit.setMinimumHeight(34)
     path_row.addWidget(path_edit, 1)
     select_button = _dialog_button("选择文件")
@@ -228,20 +227,6 @@ def build_settings_dialog(main_window):
     path_row.addWidget(select_button)
     dict_layout.addLayout(path_row)
     content_layout.addWidget(dict_section)
-
-    merge_section, merge_layout = _card("官方词典更新策略", "安装包带来新官方词典时的默认处理方式。")
-    merge_group = QVBoxLayout()
-    merge_group.setSpacing(8)
-    radio_items = [
-        ("merge_policy_ask_radio", "每次询问我", DICT_MERGE_POLICY_ASK),
-        ("merge_policy_keep_local_radio", "默认保留本地词条", DICT_MERGE_POLICY_KEEP_LOCAL),
-        ("merge_policy_replace_official_radio", "默认替换云端词条", DICT_MERGE_POLICY_REPLACE_OFFICIAL),
-    ]
-    for object_name, label, value in radio_items:
-        radio = _settings_radio(label, object_name, merge_policy == value)
-        merge_group.addWidget(radio)
-    merge_layout.addLayout(merge_group)
-    content_layout.addWidget(merge_section)
 
     conflict_section, conflict_layout = _card("词典诊断", "默认关闭。启用后只在诊断模式下提示潜在冲突。")
     main_window.conflict_detection_checkbox = SwitchCheckBox("启用词典规则冲突检测")
@@ -319,7 +304,7 @@ def build_about_dialog(main_window):
     desc_label.setWordWrap(True)
     main_layout.addWidget(desc_label)
 
-    feature_label = QLabel("支持自定义词典、常用搭配、前后缀组合与官方词典同步。")
+    feature_label = QLabel("支持官方基底词典、用户词典增量、常用搭配与前后缀组合。")
     feature_label.setProperty("muted", "true")
     feature_label.setAlignment(Qt.AlignCenter)
     feature_label.setWordWrap(True)
@@ -365,57 +350,95 @@ def build_close_choice_dialog(main_window):
     dialog = QDialog(main_window)
     dialog.setWindowTitle("关闭选项")
     dialog.setWindowFlags(Qt.Dialog | Qt.WindowStaysOnTopHint)
-    dialog.setFixedWidth(420)
+    dialog.setFixedWidth(480)
     dialog.setStyleSheet("""
         QDialog {
             background-color: #f4f6f8;
+        }
+        QLabel[title="true"] {
+            font-size: 18px;
+            font-weight: 700;
+            color: #111827;
+        }
+        QLabel[muted="true"] {
+            color: #667085;
+            font-size: 12px;
+        }
+        QLabel[option="true"] {
+            color: #344054;
+            font-size: 12px;
+            line-height: 18px;
+        }
+        QFrame[card="true"] {
+            background-color: white;
+            border: 1px solid #dbe3ea;
+            border-radius: 14px;
+        }
+        QFrame[hint="true"] {
+            background-color: #f8fafb;
+            border: 1px solid #e6ebf0;
+            border-radius: 10px;
         }
     """)
 
     _set_window_icon(dialog, main_window)
 
     layout = QVBoxLayout(dialog)
-    layout.setSpacing(16)
-    layout.setContentsMargins(20, 20, 20, 20)
+    layout.setSpacing(12)
+    layout.setContentsMargins(18, 18, 18, 18)
 
-    header = QHBoxLayout()
-    icon_label = QLabel("?")
-    icon_label.setStyleSheet("font-size: 24px; color: #2f7d67; font-weight: 700;")
-    header.addWidget(icon_label)
+    card = QFrame()
+    card.setProperty("card", "true")
+    card.setAttribute(Qt.WA_StyledBackground, True)
+    card_layout = QVBoxLayout(card)
+    card_layout.setContentsMargins(18, 16, 18, 16)
+    card_layout.setSpacing(12)
+
     title_text = QLabel("关闭程序")
     title_text.setProperty("title", "true")
-    header.addWidget(title_text)
-    header.addStretch(1)
-    layout.addLayout(header)
+    card_layout.addWidget(title_text)
 
     message_label = QLabel("请选择关闭后的动作。")
     message_label.setWordWrap(True)
     message_label.setProperty("muted", "true")
-    layout.addWidget(message_label)
+    card_layout.addWidget(message_label)
 
-    minimize_info = QLabel("最小化到托盘：程序保持运行，可以在托盘中重新打开。")
+    hint_frame = QFrame()
+    hint_frame.setProperty("hint", "true")
+    hint_frame.setAttribute(Qt.WA_StyledBackground, True)
+    hint_layout = QVBoxLayout(hint_frame)
+    hint_layout.setContentsMargins(12, 10, 12, 10)
+    hint_layout.setSpacing(6)
+
+    minimize_info = QLabel("最小化到托盘：程序保持运行，可从托盘重新打开。")
     minimize_info.setWordWrap(True)
-    minimize_info.setProperty("muted", "true")
-    layout.addWidget(minimize_info)
+    minimize_info.setProperty("option", "true")
+    hint_layout.addWidget(minimize_info)
 
-    exit_info = QLabel("退出程序：彻底关闭，需重新启动后才能使用。")
+    exit_info = QLabel("退出程序：彻底关闭，下次使用需要重新启动。")
     exit_info.setWordWrap(True)
-    exit_info.setProperty("muted", "true")
-    layout.addWidget(exit_info)
+    exit_info.setProperty("option", "true")
+    hint_layout.addWidget(exit_info)
+    card_layout.addWidget(hint_frame)
 
     remember_choice_checkbox = CustomCheckBox("记住我的选择，下次无需询问")
     remember_choice_checkbox.setObjectName("remember_choice_checkbox")
-    layout.addWidget(remember_choice_checkbox)
+    card_layout.addWidget(remember_choice_checkbox)
+
+    layout.addWidget(card)
 
     button_layout = QHBoxLayout()
-    button_layout.setSpacing(10)
-    button_layout.addStretch(1)
+    button_layout.setSpacing(12)
     minimize_button = _dialog_button("最小化到托盘", primary=True)
+    minimize_button.setFixedHeight(40)
+    minimize_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
     minimize_button.clicked.connect(dialog.accept)
     exit_button = _dialog_button("退出程序")
+    exit_button.setFixedHeight(40)
+    exit_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
     exit_button.clicked.connect(lambda: dialog.done(2))
-    button_layout.addWidget(minimize_button)
-    button_layout.addWidget(exit_button)
+    button_layout.addWidget(minimize_button, 1)
+    button_layout.addWidget(exit_button, 1)
     layout.addLayout(button_layout)
 
     _position_dialog(dialog)

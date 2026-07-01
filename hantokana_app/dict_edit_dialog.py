@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -13,12 +13,11 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QSizePolicy,
+    QWidget,
 )
 
 from .dict_edit_core import (
-    delete_dict_entries,
     format_entry_text,
-    iter_edit_entries,
     parse_entry_display_text,
     set_dict_entry,
     split_entry_values,
@@ -28,17 +27,29 @@ from .dict_dialog_styles import (
     DICT_LIST_STYLE,
     FORM_LABEL_SPACED_STYLE,
     FORM_LABEL_STYLE,
-    PANEL_FRAME_STYLE,
     PATH_LABEL_STYLE,
     action_button_style,
 )
 from .dict_view_core import get_dict_type_meta
+from .dict_migration_core import (
+    SOURCE_CUSTOM,
+    SOURCE_DELETED,
+    SOURCE_OFFICIAL,
+    SOURCE_OVERRIDE,
+    dict_entry_source,
+    source_label,
+)
 from .storage_core import resource_path as storage_resource_path
 from .ui_shared import (
     CustomMessageBox,
     center_on_parent,
     SwitchCheckBox,
 )
+
+
+ROLE_WORD = Qt.UserRole
+ROLE_VALUES = Qt.UserRole + 1
+ROLE_SOURCE = Qt.UserRole + 2
 
 
 def _resolve_icon_path(parent, relative_path="icon.ico"):
@@ -51,10 +62,11 @@ def _resolve_icon_path(parent, relative_path="icon.ico"):
 
 class DictEditDialog(QDialog):
     """词典编辑对话框"""
-    def __init__(self, parent, word_type, custom_dict):
+    def __init__(self, parent, word_type, custom_dict, official_dict=None):
         super().__init__(parent)
         self.word_type = word_type
         self.custom_dict = custom_dict
+        self.official_dict = official_dict if isinstance(official_dict, dict) else {}
         meta = get_dict_type_meta(word_type)
 
         self.setWindowTitle(f"编辑{meta['dialog_title']}词典")
@@ -84,7 +96,7 @@ class DictEditDialog(QDialog):
         title_label.setProperty("title", "true")
         header_layout.addWidget(title_label)
 
-        path_label = QLabel(f"当前词典文件路径: {parent.current_dict_path}")
+        path_label = QLabel(f"当前用户词典路径: {parent.current_dict_path}")
         path_label.setStyleSheet(PATH_LABEL_STYLE)
         path_label.setWordWrap(True)
         header_layout.addWidget(path_label)
@@ -116,6 +128,11 @@ class DictEditDialog(QDialog):
         self.readings_edit.setPlaceholderText(meta["reading_placeholder"])
         self.readings_edit.setStyleSheet(COMPACT_LINE_EDIT_STYLE)
         input_layout.addWidget(self.readings_edit)
+
+        self.source_hint_label = QLabel("来源：我的词条")
+        self.source_hint_label.setStyleSheet(PATH_LABEL_STYLE)
+        self.source_hint_label.setWordWrap(True)
+        input_layout.addWidget(self.source_hint_label)
         
         layout.addWidget(form_card)
 
@@ -178,6 +195,107 @@ class DictEditDialog(QDialog):
         # 连接信号
         self.copy_on_select.toggled.connect(self.on_selection_changed)
         self.last_selected_item = None  # 添加标志位
+
+    def _entry_source(self, word):
+        return dict_entry_source(self.official_dict, self.custom_dict, self.word_type, word)
+
+    def _entry_values(self, word):
+        custom_bucket = self.custom_dict.get(self.word_type, {})
+        official_bucket = self.official_dict.get(self.word_type, {})
+        if word in custom_bucket and custom_bucket[word]:
+            return custom_bucket[word]
+        return official_bucket.get(word, [])
+
+    def _iter_visible_entries(self):
+        custom_bucket = self.custom_dict.get(self.word_type, {})
+        official_bucket = self.official_dict.get(self.word_type, {})
+        for word in sorted(set(official_bucket) | set(custom_bucket)):
+            source = self._entry_source(word)
+            yield word, self._entry_values(word), source
+
+    def _format_visible_entry_text(self, word, values, source):
+        if source == SOURCE_DELETED:
+            return f"{word} → (已删除)"
+        return format_entry_text(word, values)
+
+    def _source_badge_style(self, source):
+        colors = {
+            SOURCE_OFFICIAL: ("#eef4ff", "#315aa8", "#cbdaf8"),
+            SOURCE_CUSTOM: ("#e8f5ef", "#1f6f58", "#b8dfd0"),
+            SOURCE_OVERRIDE: ("#fff3e0", "#9a5b00", "#ffd59a"),
+            SOURCE_DELETED: ("#fff1f2", "#b42318", "#fecdd3"),
+        }
+        background, color, border = colors.get(source, ("#f3f4f6", "#4b5563", "#d1d5db"))
+        return f"""
+        QLabel {{
+            background-color: {background};
+            color: {color};
+            border: 1px solid {border};
+            border-radius: 9px;
+            padding: 2px 8px;
+            font-size: 12px;
+            font-weight: 600;
+            min-width: 58px;
+        }}
+        """
+
+    def _create_entry_row_widget(self, word, values, source):
+        row = QWidget()
+        row.setAttribute(Qt.WA_StyledBackground, True)
+        row.setStyleSheet("QWidget { background: transparent; }")
+
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(10, 4, 10, 4)
+        row_layout.setSpacing(10)
+
+        entry_label = QLabel(self._format_visible_entry_text(word, values, source))
+        entry_label.setMinimumWidth(0)
+        entry_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        entry_label.setStyleSheet("QLabel { color: #111827; font-size: 13px; background: transparent; }")
+
+        badge_label = QLabel(source_label(source))
+        badge_label.setAlignment(Qt.AlignCenter)
+        badge_label.setStyleSheet(self._source_badge_style(source))
+
+        row_layout.addWidget(entry_label, 1)
+        row_layout.addWidget(badge_label, 0, Qt.AlignRight | Qt.AlignVCenter)
+        return row
+
+    def _set_source_hint(self, source, word=None):
+        label = source_label(source)
+        if source == SOURCE_OFFICIAL:
+            text = "来源：官方词条。修改后会写入用户词典；删除会在用户词典中记录删除标记。"
+        elif source == SOURCE_OVERRIDE:
+            text = "来源：已修改。当前显示并转换时优先使用你的版本。"
+        elif source == SOURCE_DELETED:
+            text = "来源：已删除。转换时不会使用该官方词条；保存非空读音可恢复或重新覆盖。"
+        elif source == SOURCE_CUSTOM:
+            text = "来源：我的词条。只会保存到用户词典。"
+        else:
+            text = f"来源：{label}"
+        if word:
+            text = f"{text}（{word}）"
+        self.source_hint_label.setText(text)
+
+    def focus_entry(self, target_word):
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item.data(ROLE_WORD) == target_word:
+                self.list_widget.setCurrentItem(item)
+                self.list_widget.scrollToItem(item)
+                self.edit_entry()
+                return True
+
+        values = self._entry_values(target_word)
+        source = self._entry_source(target_word)
+        if values:
+            self.kanji_edit.setText(target_word)
+            self.readings_edit.setText(", ".join(str(value) for value in values))
+            self._set_source_hint(source, target_word)
+            self.readings_edit.setFocus()
+            self.readings_edit.selectAll()
+            return True
+        return False
     
     
     def show_context_menu(self, position):
@@ -210,10 +328,20 @@ class DictEditDialog(QDialog):
         """更新词典列表显示"""
         self.list_widget.clear()
 
-        for word, values in iter_edit_entries(self.custom_dict, self.word_type):
-            item = QListWidgetItem(format_entry_text(word, values))
-            item.setData(Qt.UserRole, word)
+        for word, values, source in self._iter_visible_entries():
+            item = QListWidgetItem(self._format_visible_entry_text(word, values, source))
+            item.setSizeHint(QSize(0, 42))
+            item.setData(ROLE_WORD, word)
+            item.setData(ROLE_VALUES, list(values or []))
+            item.setData(ROLE_SOURCE, source)
+            if source == SOURCE_OFFICIAL:
+                item.setToolTip("官方词条；修改会创建用户版本，删除会记录删除标记。")
+            elif source == SOURCE_OVERRIDE:
+                item.setToolTip("用户词条正在覆盖官方词条。")
+            elif source == SOURCE_DELETED:
+                item.setToolTip("该官方词条已被用户删除，转换时不会使用。")
             self.list_widget.addItem(item)
+            self.list_widget.setItemWidget(item, self._create_entry_row_widget(word, values, source))
     
     def split_readings(self, raw):
         """分割假名字符串为列表"""
@@ -229,8 +357,20 @@ class DictEditDialog(QDialog):
             CustomMessageBox(self, "警告", "词条和读音不能为空", style='warning').exec()
             return
         
+        source_before_save = self._entry_source(word)
         readings_list = self.split_readings(reading)
-        is_edit = set_dict_entry(self.custom_dict, self.word_type, word, readings_list)
+        if not readings_list:
+            CustomMessageBox(self, "警告", "读音不能为空", style='warning').exec()
+            return
+
+        official_values = list(self.official_dict.get(self.word_type, {}).get(word, []))
+        custom_bucket = self.custom_dict.setdefault(self.word_type, {})
+        restored_official = bool(official_values) and readings_list == official_values
+        if restored_official:
+            is_edit = word in custom_bucket
+            custom_bucket.pop(word, None)
+        else:
+            is_edit = set_dict_entry(self.custom_dict, self.word_type, word, readings_list)
         
         self.update_dict_view()
         
@@ -249,7 +389,13 @@ class DictEditDialog(QDialog):
         self.kanji_edit.clear()
         self.readings_edit.clear()
         
-        if is_edit:
+        if restored_official:
+            CustomMessageBox(self, "成功", "已恢复为官方词条", style='success').exec()
+        elif source_before_save == SOURCE_OFFICIAL:
+            CustomMessageBox(self, "成功", "已保存为用户词条，并覆盖官方版本", style='success').exec()
+        elif source_before_save == SOURCE_DELETED:
+            CustomMessageBox(self, "成功", "已重新启用该词条，并保存为用户词条", style='success').exec()
+        elif is_edit:
             CustomMessageBox(self, "成功", "词条更新成功", style='success').exec()
         else:
             CustomMessageBox(self, "成功", "词条添加成功", style='success').exec()
@@ -264,14 +410,19 @@ class DictEditDialog(QDialog):
         item = selected_items[0]
         item_text = item.text()
         
-        word = item.data(Qt.UserRole)
+        word = item.data(ROLE_WORD)
+        values = item.data(ROLE_VALUES)
+        source = item.data(ROLE_SOURCE)
         if not word:
             word, reading_part = parse_entry_display_text(item_text)
+        elif values is not None:
+            reading_part = ", ".join(str(value) for value in values)
         else:
             _word, reading_part = parse_entry_display_text(item_text)
 
         self.kanji_edit.setText(word)
         self.readings_edit.setText(reading_part)
+        self._set_source_hint(source, word)
         
         # 将焦点设置到读音输入框，方便用户修改
         self.readings_edit.setFocus()
@@ -286,13 +437,14 @@ class DictEditDialog(QDialog):
         
         dialog = CustomMessageBox(self, "确认删除", "确定要删除选中的词条吗？", style='question')
         if dialog.exec() == QDialog.Accepted:
-            words = []
+            tombstone_words = []
+            custom_bucket = self.custom_dict.setdefault(self.word_type, {})
             for item in selected_items:
-                word = item.data(Qt.UserRole)
+                word = item.data(ROLE_WORD)
                 if not word:
                     word, _values = parse_entry_display_text(item.text())
-                words.append(word)
-            delete_dict_entries(self.custom_dict, self.word_type, words)
+                custom_bucket[word] = []
+                tombstone_words.append(word)
             
             self.update_dict_view()
             
@@ -307,17 +459,18 @@ class DictEditDialog(QDialog):
                 CustomMessageBox(self, "错误", f"保存词条时出错: {str(e)}", style='error').exec()
                 return
             
-            CustomMessageBox(self, "成功", "词条删除成功", style='success').exec()
+            CustomMessageBox(self, "成功", "已在用户词典中记录删除标记", style='success').exec()
     
     def copy_all(self):
         """复制所有词条"""
-        if not self.custom_dict.get(self.word_type):
+        visible_entries = list(self._iter_visible_entries())
+        if not visible_entries:
             CustomMessageBox(self, "提示", "词典为空", style='info').exec()
             return
         
         text = "\n".join(
-            format_entry_text(word, values)
-            for word, values in iter_edit_entries(self.custom_dict, self.word_type)
+            self._format_visible_entry_text(word, values, source)
+            for word, values, source in visible_entries
         )
         QApplication.clipboard().setText(text)
         CustomMessageBox(self, "成功", "已复制到剪贴板", style='success').exec()
