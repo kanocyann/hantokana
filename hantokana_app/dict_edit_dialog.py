@@ -248,7 +248,7 @@ class DictEditDialog(QDialog):
         row.setStyleSheet("QWidget { background: transparent; }")
 
         row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(10, 4, 10, 4)
+        row_layout.setContentsMargins(10, 3, 10, 3)
         row_layout.setSpacing(10)
 
         entry_label = QLabel(self._format_visible_entry_text(word, values, source))
@@ -259,7 +259,7 @@ class DictEditDialog(QDialog):
 
         badge_label = QLabel(source_label(source))
         badge_label.setAlignment(Qt.AlignCenter)
-        badge_label.setFixedSize(52, 28)
+        badge_label.setFixedSize(52, 32)
         badge_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         badge_label.setStyleSheet(self._source_badge_style(source))
 
@@ -340,7 +340,7 @@ class DictEditDialog(QDialog):
         for word, values, source in self._iter_visible_entries():
             display_text = self._format_visible_entry_text(word, values, source)
             item = QListWidgetItem()
-            item.setSizeHint(QSize(0, 46))
+            item.setSizeHint(QSize(0, 52))
             item.setData(ROLE_WORD, word)
             item.setData(ROLE_VALUES, list(values or []))
             item.setData(ROLE_SOURCE, source)
