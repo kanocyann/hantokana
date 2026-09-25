@@ -1,4 +1,7 @@
+import jaconv
+
 from .conversion_core import (
+    FINAL_PRONUNCIATION_MAP,
     ensure_custom_dict_schema,
     extract_hira_reading,
     format_reading_line,
@@ -33,6 +36,14 @@ def convert_text_payload(raw_text, custom_dict, tagger, conv, use_hira, use_kata
     processed_ranges = []
     processed_words = set()
     result_entries = []
+    final_pronunciation_cache = {}
+
+    def final_pronunciation_override(word):
+        if not use_roma:
+            return False
+        if word not in final_pronunciation_cache:
+            final_pronunciation_cache[word] = _has_final_pronunciation_override(word, tagger)
+        return final_pronunciation_cache[word]
 
     processed_direct_matches = []
     for word in direct_words:
@@ -40,7 +51,15 @@ def convert_text_payload(raw_text, custom_dict, tagger, conv, use_hira, use_kata
         if not readings:
             continue
         for position in iter_non_overlapping_occurrences(raw, word, processed_ranges):
-            line = format_reading_line(word, readings, use_hira, use_kata, use_roma, romaji_converter)
+            line = format_reading_line(
+                word,
+                readings,
+                use_hira,
+                use_kata,
+                use_roma,
+                romaji_converter,
+                final_pronunciation_override=final_pronunciation_override(word),
+            )
             processed_ranges.append((position, position + len(word)))
             processed_words.add(word)
             processed_direct_matches.append((position, line, word))
@@ -53,7 +72,15 @@ def convert_text_payload(raw_text, custom_dict, tagger, conv, use_hira, use_kata
         if not readings:
             continue
         for position in iter_non_overlapping_occurrences(raw, word, processed_ranges):
-            line = format_reading_line(word, readings, use_hira, use_kata, use_roma, romaji_converter)
+            line = format_reading_line(
+                word,
+                readings,
+                use_hira,
+                use_kata,
+                use_roma,
+                romaji_converter,
+                final_pronunciation_override=final_pronunciation_override(word),
+            )
             processed_ranges.append((position, position + len(word)))
             processed_words.add(word)
             processed_combinations.append((position, line, word))
@@ -67,7 +94,15 @@ def convert_text_payload(raw_text, custom_dict, tagger, conv, use_hira, use_kata
         if not readings:
             continue
         for position in iter_non_overlapping_occurrences(raw, combined, processed_ranges):
-            line = format_reading_line(combined, readings, use_hira, use_kata, use_roma, romaji_converter)
+            line = format_reading_line(
+                combined,
+                readings,
+                use_hira,
+                use_kata,
+                use_roma,
+                romaji_converter,
+                final_pronunciation_override=final_pronunciation_override(combined),
+            )
             processed_ranges.append((position, position + len(combined)))
             processed_words.add(combined)
             processed_combinations.append((position, line, combined))
@@ -86,7 +121,15 @@ def convert_text_payload(raw_text, custom_dict, tagger, conv, use_hira, use_kata
         if not readings:
             continue
         for position in iter_non_overlapping_occurrences(raw, word, processed_ranges):
-            line = format_reading_line(word, readings, use_hira, use_kata, use_roma, romaji_converter)
+            line = format_reading_line(
+                word,
+                readings,
+                use_hira,
+                use_kata,
+                use_roma,
+                romaji_converter,
+                final_pronunciation_override=final_pronunciation_override(word),
+            )
             processed_ranges.append((position, position + len(word)))
             processed_words.add(word)
             result_entries.append((position, line, word))
@@ -102,6 +145,35 @@ def convert_text_payload(raw_text, custom_dict, tagger, conv, use_hira, use_kata
             result += "\n\n" + conflict_report
 
     return result.strip()
+
+
+def _has_final_pronunciation_override(word, tagger):
+    if not word or tagger is None:
+        return False
+
+    try:
+        tokens = list(tagger(word))
+    except Exception:
+        return False
+
+    if not tokens:
+        return False
+
+    final_token = tokens[-1]
+    surface = getattr(final_token, "surface", "")
+    if not any(surface.endswith(kana) for kana in FINAL_PRONUNCIATION_MAP):
+        return False
+
+    feature = getattr(final_token, "feature", None)
+    if getattr(feature, "pos1", None) == "助詞":
+        return True
+
+    kana = jaconv.kata2hira(str(getattr(feature, "kana", "") or ""))
+    pronunciation = jaconv.kata2hira(str(getattr(feature, "pron", "") or ""))
+    return any(
+        kana.endswith(spelling) and pronunciation.endswith(pronounced)
+        for spelling, pronounced in FINAL_PRONUNCIATION_MAP.items()
+    )
 
 
 def _lookup_readings(conv, word, fallback_readings=None):

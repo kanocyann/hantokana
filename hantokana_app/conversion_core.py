@@ -3,6 +3,12 @@ import jaconv
 
 DICT_KEYS = ("normal_words", "compound_words", "prefix_combinations", "suffix_combinations")
 
+FINAL_PRONUNCIATION_MAP = {
+    "は": "わ",
+    "へ": "え",
+    "を": "お",
+}
+
 
 def empty_custom_dict():
     return {key: {} for key in DICT_KEYS}
@@ -69,7 +75,15 @@ def extract_hira_reading(converted):
     return "".join(item.get("hira", item.get("orig", "")) for item in converted)
 
 
-def format_reading_line(word, readings, use_hira, use_kata, use_roma, romaji_converter):
+def format_reading_line(
+    word,
+    readings,
+    use_hira,
+    use_kata,
+    use_roma,
+    romaji_converter,
+    final_pronunciation_override=False,
+):
     line = f"[{word}]"
     normalized = [jaconv.kata2hira(str(reading)) for reading in readings if str(reading)]
 
@@ -81,7 +95,13 @@ def format_reading_line(word, readings, use_hira, use_kata, use_roma, romaji_con
         line += f" → [{', '.join(kata_readings)}]"
 
     if use_roma:
-        roma_readings = [romaji_converter(reading, word) for reading in normalized]
+        roma_readings = [
+            romaji_converter(
+                _apply_final_pronunciation_override(reading, final_pronunciation_override),
+                word,
+            )
+            for reading in normalized
+        ]
         line += f" → [{', '.join(roma_readings)}]"
 
     return line
@@ -146,21 +166,12 @@ def _sokuon_prefix(next_romaji):
     return next_romaji[0]
 
 
-def _apply_particle_readings(tokens, kana_text, surface_text):
-    if not tokens:
-        return tokens
-
-    surface = surface_text or kana_text
-    if not surface:
-        return tokens
-
-    if surface.endswith("は") and kana_text.endswith("は"):
-        tokens[-1] = "wa"
-    elif surface.endswith("へ") and kana_text.endswith("へ"):
-        tokens[-1] = "e"
-    elif surface.endswith("を") and kana_text.endswith("を"):
-        tokens[-1] = "o"
-    return tokens
+def _apply_final_pronunciation_override(reading, enabled=False):
+    if enabled:
+        for spelling, pronunciation in FINAL_PRONUNCIATION_MAP.items():
+            if reading.endswith(spelling):
+                return reading[:-1] + pronunciation
+    return reading
 
 
 def kana_to_romaji(kana_text, surface_text=None):
@@ -213,5 +224,4 @@ def kana_to_romaji(kana_text, surface_text=None):
     if pending_sokuon:
         tokens.append("t")
 
-    tokens = _apply_particle_readings(tokens, hira, jaconv.kata2hira(str(surface_text)) if surface_text else None)
     return "".join(tokens)
