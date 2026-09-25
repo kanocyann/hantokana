@@ -50,15 +50,25 @@ def build_tokenized_words(words, prefix_combinations, suffix_combinations, compo
 
     while index < len(words):
         current_word = words[index].surface
+        contiguous_end = index + 1
+        while (
+            contiguous_end < len(words)
+            and not getattr(words[contiguous_end], "white_space", "")
+        ):
+            contiguous_end += 1
 
-        for end in range(len(words), index, -1):
+        for end in range(contiguous_end, index, -1):
             combined = "".join(word.surface for word in words[index:end])
             if combined in compound_words:
                 tokenized_words.append(combined)
                 index = end
                 break
         else:
-            if index + 1 < len(words):
+            adjacent_tokens = (
+                index + 1 < len(words)
+                and not getattr(words[index + 1], "white_space", "")
+            )
+            if adjacent_tokens:
                 next_word = words[index + 1].surface
 
                 if (current_word, next_word) in prefix_pairs:

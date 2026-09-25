@@ -22,9 +22,10 @@ class _DummyFeature:
 
 
 class _DummyToken:
-    def __init__(self, surface, pos1="名詞", kana="", pron=""):
+    def __init__(self, surface, pos1="名詞", kana="", pron="", white_space=""):
         self.surface = surface
         self.feature = _DummyFeature(pos1, kana, pron)
+        self.white_space = white_space
 
 
 class _ParticleAwareTagger:
@@ -38,6 +39,10 @@ class _ParticleAwareTagger:
             _DummyToken("は", "助詞", "ハ", "ワ"),
         ],
         "こんにちは": [_DummyToken("こんにちは", "感動詞", "コンニチハ", "コンニチワ")],
+        "こんにち\nは": [
+            _DummyToken("こんにち", "名詞", "コンニチ", "コンニチ"),
+            _DummyToken("は", "助詞", "ハ", "ワ", white_space="\n"),
+        ],
         "へ": [_DummyToken("へ", "助詞", "ヘ", "エ")],
         "を": [_DummyToken("を", "助詞", "ヲ", "オ")],
     }
@@ -103,6 +108,29 @@ class ConversionCoreTests(unittest.TestCase):
                     conflict_detection=False,
                 )
                 self.assertEqual(result, expected_output)
+
+    def test_conversion_does_not_combine_tokens_across_newline(self):
+        dictionary = ensure_custom_dict_schema({
+            "compound_words": {
+                "こんにちは": ["こんにちは"],
+            },
+        })
+        result = convert_text_payload(
+            "こんにち\nは",
+            dictionary,
+            _ParticleAwareTagger(),
+            _DummyConv(),
+            True,
+            True,
+            True,
+            _convert_test_romaji,
+            conflict_detection=False,
+        )
+        self.assertEqual(
+            result,
+            "[こんにち] → [こんにち] → [コンニチ] → [konnichi]\n"
+            "[は] → [は] → [ハ] → [wa]",
+        )
 
     def test_format_reading_line_formats_all_selected_outputs(self):
         line = format_reading_line(
